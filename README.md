@@ -108,12 +108,122 @@ npm run dev
 
 ## Building for Distribution
 
-Create a distributable package:
+### Prerequisites for Building
+
+1. Install electron-builder (if not already in package.json):
+   ```bash
+   npm install --save-dev electron-builder
+   ```
+
+2. Ensure your package.json has proper build configuration:
+   ```json
+   "build": {
+     "appId": "com.perfectworld.accountmanager",
+     "productName": "Perfect World Account Manager",
+     "directories": {
+       "output": "dist-electron"
+     },
+     "files": [
+       "dist/**/*",
+       "src/renderer/**/*",
+       "assets/**/*"
+     ],
+     "mac": {
+       "category": "public.app-category.utilities"
+     },
+     "win": {
+       "target": "nsis"
+     },
+     "linux": {
+       "target": "AppImage"
+     }
+   }
+   ```
+
+### Building Standalone Versions
+
+#### For Windows (.exe installer):
+```bash
+npm run dist -- --win
+```
+
+#### For macOS (.dmg):
+```bash
+npm run dist -- --mac
+```
+
+#### For Linux (.AppImage):
+```bash
+npm run dist -- --linux
+```
+
+#### Build for all platforms:
 ```bash
 npm run dist
 ```
 
-This will create installers in the `dist-electron` directory.
+### Build Output
+
+Built applications will be in the `dist-electron` directory:
+- **Windows**: `Perfect World Account Manager Setup x.x.x.exe`
+- **macOS**: `Perfect World Account Manager-x.x.x.dmg`
+- **Linux**: `Perfect World Account Manager-x.x.x.AppImage`
+
+### Code Signing (Optional)
+
+For production distribution, you should sign your application:
+
+#### Windows Code Signing:
+Add to package.json build config:
+```json
+"win": {
+  "certificateFile": "./cert.pfx",
+  "certificatePassword": "your-password"
+}
+```
+
+#### macOS Code Signing:
+Requires Apple Developer certificate. Set environment variables:
+```bash
+export CSC_LINK=path/to/certificate.p12
+export CSC_KEY_PASSWORD=your-password
+```
+
+### Creating Portable Version
+
+For a portable Windows version (no installation required):
+```bash
+npm run dist -- --win portable
+```
+
+### Auto-Update Support
+
+To add auto-update functionality:
+
+1. Install electron-updater:
+   ```bash
+   npm install electron-updater
+   ```
+
+2. Configure update server in package.json:
+   ```json
+   "build": {
+     "publish": {
+       "provider": "github",
+       "owner": "your-username",
+       "repo": "your-repo"
+     }
+   }
+   ```
+
+3. Add update checking in main process:
+   ```javascript
+   const { autoUpdater } = require('electron-updater');
+   
+   app.whenReady().then(() => {
+     autoUpdater.checkForUpdatesAndNotify();
+   });
+   ```
 
 ## Security Features
 
