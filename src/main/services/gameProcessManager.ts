@@ -199,6 +199,14 @@ export class GameProcessManager extends EventEmitter {
     const pidsBeforeLaunch = new Set(await this.getElementClientProcessesUltraLight());
     
     const batContent = this.generateBatchFile(account, gameExePath);
+    
+    // Validate batch file format
+    if (!this.validateBatchFileFormat(batContent)) {
+      console.warn('Generated batch file may have formatting issues');
+    }
+    
+    console.log(`Generated batch file for ${account.login} with character: ${account.characterName || 'none'}`);
+    
     const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
     await fs.mkdir(tempDir, { recursive: true });
     
@@ -326,6 +334,24 @@ export class GameProcessManager extends EventEmitter {
     return content;
   }
 
+  // Test method to validate batch file format (can be removed in production)
+  private validateBatchFileFormat(content: string): boolean {
+    const requiredElements = [
+      '@echo off',
+      'chcp 1251',
+      'cd /d',
+      'start ""',
+      'startbypatcher',
+      'game:cpw',
+      'user:',
+      'pwd:',
+      'role:',
+      'exit'
+    ];
+    
+    return requiredElements.every(element => content.includes(element));
+  }
+
   async closeGame(accountId: string): Promise<void> {
     const processInfo = this.processes.get(accountId);
     if (!processInfo) {
@@ -398,6 +424,11 @@ export class GameProcessManager extends EventEmitter {
       
       // Generate batch file content
       const batchContent = this.generateBatchFile(account, gameExePath);
+      
+      // Validate batch file format
+      if (!this.validateBatchFileFormat(batchContent)) {
+        console.warn('Generated permanent batch file may have formatting issues');
+      }
       
       // Create filename based on account login (sanitize for filesystem)
       // Remove or replace characters that are invalid in Windows filenames
