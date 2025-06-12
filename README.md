@@ -196,6 +196,39 @@ For a portable Windows version (no installation required):
 npm run dist -- --win portable
 ```
 
+### Windows Build Troubleshooting
+
+If you encounter build errors on Windows (especially 7-zip extraction errors):
+
+#### Quick Solutions:
+
+1. **Clear cache and rebuild:**
+   ```powershell
+   Remove-Item -Recurse -Force "$env:LOCALAPPDATA\electron-builder\Cache"
+   npm run build
+   npm run dist -- --win --publish=never
+   ```
+
+2. **Build portable version (no code signing required):**
+   ```powershell
+   npm run dist -- --win portable
+   ```
+
+3. **Build unpacked for testing:**
+   ```powershell
+   npm run build
+   npx electron-builder --win --dir
+   ```
+   The unpacked app will be in `dist-electron\win-unpacked\`
+
+#### Additional Solutions:
+
+- **Run as Administrator**: Open PowerShell as Administrator and retry
+- **Clean install**: Delete `node_modules` and `package-lock.json`, then `npm install`
+- **Manual 7-Zip**: Install 7-Zip from https://www.7-zip.org/ and add to PATH
+
+For detailed troubleshooting, see [WINDOWS_BUILD_TROUBLESHOOTING.md](./WINDOWS_BUILD_TROUBLESHOOTING.md)
+
 ### Auto-Update Support
 
 To add auto-update functionality:
