@@ -6,16 +6,19 @@ import { AccountStorage } from '../services/accountStorage';
 import { SettingsManager } from '../services/settingsManager';
 import { GameProcessManager } from '../services/gameProcessManager';
 import { BatchFileScanner } from '../services/batchFileScanner';
+import { WebViewManager } from '../services/webviewManager';
 import { mainWindow } from '../main';
 
 let accountStorage: AccountStorage;
 let settingsManager: SettingsManager;
 let gameProcessManager: GameProcessManager;
+let webViewManager: WebViewManager;
 
 export function setupIpcHandlers() {
   accountStorage = new AccountStorage();
   settingsManager = new SettingsManager();
   gameProcessManager = new GameProcessManager();
+  webViewManager = new WebViewManager();
 
   ipcMain.handle('get-accounts', async () => {
     return await accountStorage.getAccounts();
@@ -138,6 +141,31 @@ export function setupIpcHandlers() {
     }
     
     return { success: false, count: 0 };
+  });
+
+  ipcMain.handle('open-webview', async (_, accountId: string) => {
+    const accounts = await accountStorage.getAccounts();
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) {
+      return { success: false, error: 'Account not found' };
+    }
+
+    try {
+      await webViewManager.openWebViewForAccount(account);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('close-webview', async (_, accountId: string) => {
+    webViewManager.closeWebView(accountId);
+    return { success: true };
+  });
+
+  ipcMain.handle('close-all-webviews', async () => {
+    webViewManager.closeAllWebViews();
+    return { success: true };
   });
 
   gameProcessManager.on('status-update', (accountId: string, running: boolean) => {

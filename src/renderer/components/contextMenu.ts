@@ -20,6 +20,8 @@ export class ContextMenu {
       { label: 'Launch', action: 'play', disabled: account.isRunning },
       { label: 'Close', action: 'close', disabled: !account.isRunning },
       { type: 'separator' },
+      { label: 'Open WebView', action: 'webview' },
+      { type: 'separator' },
       { label: 'Edit', action: 'edit' },
       { label: 'Delete', action: 'delete' },
       { type: 'separator' },

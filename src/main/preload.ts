@@ -13,6 +13,9 @@ const validChannels = [
   'export-accounts',
   'import-accounts',
   'process-status-update',
+  'open-webview',
+  'close-webview',
+  'close-all-webviews',
 ];
 
 const api = {

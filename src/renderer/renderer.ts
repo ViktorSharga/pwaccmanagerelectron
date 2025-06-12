@@ -334,6 +334,20 @@ class App {
       case 'copy-password':
         await navigator.clipboard.writeText(account.password);
         break;
+      case 'webview':
+        await this.openWebViewForAccount(account);
+        break;
+    }
+  }
+
+  private async openWebViewForAccount(account: Account): Promise<void> {
+    try {
+      const result = await window.electronAPI.invoke('open-webview', account.id);
+      if (!result.success) {
+        await this.dialogManager.showErrorDialog('Failed to open WebView', result.error);
+      }
+    } catch (error: any) {
+      await this.dialogManager.showErrorDialog('Failed to open WebView', error.message);
     }
   }
 }

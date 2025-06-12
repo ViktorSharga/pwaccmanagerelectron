@@ -134,6 +134,9 @@ export class AccountTable extends EventEmitter {
           <button class="action-btn close" ${!isRunning ? 'disabled' : ''} title="Close">
             ⏹
           </button>
+          <button class="action-btn webview" title="Open WebView">
+            🌐
+          </button>
           <button class="action-btn menu" title="More actions">
             ⋮
           </button>
@@ -171,6 +174,12 @@ export class AccountTable extends EventEmitter {
     closeButton?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.emit('account-action', 'close', account);
+    });
+    
+    const webviewButton = row.querySelector('.action-btn.webview');
+    webviewButton?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.emit('account-action', 'webview', account);
     });
     
     const menuButton = row.querySelector('.action-btn.menu');

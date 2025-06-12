@@ -405,6 +405,10 @@ body {
   color: #666;
 }
 
+.action-btn.webview {
+  color: #2196f3;
+}
+
 .form-group {
   margin-bottom: 16px;
 }
