@@ -330,3 +330,137 @@ body {
   background: #e0e0e0;
   margin: 4px 0;
 }
+
+.status-indicator {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-indicator.running {
+  background: #c8e6c9;
+  color: #2e7d32;
+}
+
+.status-indicator.stopped {
+  background: #ffcdd2;
+  color: #c62828;
+}
+
+.login-cell,
+.password-cell {
+  cursor: pointer;
+  user-select: none;
+}
+
+.login-cell:hover,
+.password-cell:hover {
+  background: #f0f0f0;
+}
+
+.password-cell {
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.action-btn.play {
+  color: #4caf50;
+}
+
+.action-btn.close {
+  color: #f44336;
+}
+
+.action-btn.menu {
+  color: #666;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.form-group input[type="range"] {
+  padding: 0;
+  height: 6px;
+  background: #ddd;
+  border-radius: 3px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.form-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1976d2;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.form-group input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1976d2;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
