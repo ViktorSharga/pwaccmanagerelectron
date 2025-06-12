@@ -347,6 +347,10 @@ class PerfectWorldAccountManager {
         }
       };
       
+      dialog.onclick = (e) => {
+        e.stopPropagation();
+      };
+      
       setTimeout(() => {
         const firstInput = form.querySelector('input');
         firstInput?.focus();
@@ -443,6 +447,10 @@ class PerfectWorldAccountManager {
           cleanup();
           resolve(false);
         }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
       };
     });
   }
@@ -637,6 +645,10 @@ class PerfectWorldAccountManager {
           cleanup();
           resolve(false);
         }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
       };
     });
   }
