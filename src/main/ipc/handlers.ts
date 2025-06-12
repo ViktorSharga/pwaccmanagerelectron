@@ -25,9 +25,13 @@ async function validateGameFolder(folderPath: string): Promise<boolean> {
     for (const checkPath of possiblePaths) {
       try {
         const files = await fs.readdir(checkPath);
-        const executableName = files.find(file => 
-          file.toLowerCase() === 'elementclient.exe'
-        );
+        const executableName = files.find(file => {
+          const lowerFile = file.toLowerCase();
+          return lowerFile === 'elementclient.exe' ||
+                 lowerFile === 'element client.exe' ||
+                 lowerFile === 'element_client.exe' ||
+                 (lowerFile.includes('elementclient') && lowerFile.endsWith('.exe'));
+        });
         
         if (executableName) {
           const fullPath = path.join(checkPath, executableName);
