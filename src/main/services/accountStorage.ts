@@ -147,7 +147,37 @@ export class AccountStorage {
     let importedAccounts: Partial<Account>[] = [];
 
     if (format === 'json') {
-      importedAccounts = JSON.parse(content);
+      const parsed = JSON.parse(content);
+      
+      // Handle old format with metadata wrapper
+      if (parsed.metadata && parsed.accounts) {
+        console.log('Detected old format JSON with metadata wrapper');
+        importedAccounts = parsed.accounts;
+      } else if (Array.isArray(parsed)) {
+        console.log('Detected new format JSON (direct array)');
+        importedAccounts = parsed;
+      } else {
+        console.log('Unknown JSON format, treating as single account');
+        importedAccounts = [parsed];
+      }
+      
+      // Normalize field names for old format compatibility
+      importedAccounts = importedAccounts.map(account => {
+        const normalized: any = { ...account };
+        
+        // Convert character_name to characterName
+        if (normalized.character_name !== undefined) {
+          normalized.characterName = normalized.character_name;
+          delete normalized.character_name;
+        }
+        
+        // Ensure empty strings are converted to undefined for optional fields
+        if (normalized.characterName === '') normalized.characterName = undefined;
+        if (normalized.description === '') normalized.description = undefined;
+        if (normalized.owner === '') normalized.owner = undefined;
+        
+        return normalized;
+      });
     } else {
       const lines = content.split('\n').filter(line => line.trim());
       if (lines.length < 2) return { accounts: [], existing: [], new: [] };
