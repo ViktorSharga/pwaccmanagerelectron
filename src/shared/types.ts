@@ -8,6 +8,9 @@ export interface Account {
   owner?: string;
   isRunning?: boolean;
   
+  // Persistent field to track original batch file path
+  originalBatchFilePath?: string;
+  
   // Runtime only (not persisted):
   sourceBatchFile?: string;
 }

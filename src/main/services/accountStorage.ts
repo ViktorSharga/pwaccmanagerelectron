@@ -41,7 +41,27 @@ export class AccountStorage {
   }
 
   async getAccounts(): Promise<Account[]> {
-    return [...this.accounts];
+    // Populate runtime sourceBatchFile field if the original batch file still exists
+    const accountsWithBatchFiles = await Promise.all(
+      this.accounts.map(async (account) => {
+        const accountCopy = { ...account };
+        
+        if (account.originalBatchFilePath) {
+          try {
+            await fs.access(account.originalBatchFilePath);
+            // File exists, set the runtime field
+            accountCopy.sourceBatchFile = account.originalBatchFilePath;
+          } catch {
+            // File doesn't exist, don't set the runtime field
+            accountCopy.sourceBatchFile = undefined;
+          }
+        }
+        
+        return accountCopy;
+      })
+    );
+    
+    return accountsWithBatchFiles;
   }
 
   async saveAccount(account: Partial<Account>): Promise<Account> {
@@ -180,8 +200,8 @@ export class AccountStorage {
     
     for (const account of selectedAccounts) {
       try {
-        // Remove id and isRunning fields to ensure accounts are treated as new
-        const { id, isRunning, ...accountToImport } = account;
+        // Remove id and runtime-only fields to ensure accounts are treated as new
+        const { id, isRunning, sourceBatchFile, ...accountToImport } = account;
         const saved = await this.saveAccount(accountToImport);
         savedAccounts.push(saved);
       } catch (error: any) {

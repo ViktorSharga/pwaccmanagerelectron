@@ -113,6 +113,7 @@ export class BatchFileScanner {
       
       // Store the source batch file path for reference
       account.sourceBatchFile = filePath;
+      account.originalBatchFilePath = filePath;
       
       return account;
     } catch (error) {
