@@ -132,13 +132,27 @@ export function setupIpcHandlers() {
     const accounts = await accountStorage.getAccounts();
     const accountsToLaunch = accounts.filter(acc => accountIds.includes(acc.id));
     
-    for (let i = 0; i < accountsToLaunch.length; i++) {
-      if (i > 0 && settings.launchDelay > 0) {
-        await new Promise(resolve => setTimeout(resolve, settings.launchDelay * 1000));
-      }
+    // Validate delay is within acceptable range
+    const delay = Math.max(10, Math.min(60, settings.launchDelay || 15));
+    
+    if (accountsToLaunch.length === 1) {
+      // Individual launch - no delay
+      console.log('Individual launch - no delay applied');
+      await gameProcessManager.launchGame(accountsToLaunch[0], settings.gamePath);
+    } else if (accountsToLaunch.length > 1) {
+      // Group launch - apply delay between launches
+      console.log(`Group launch of ${accountsToLaunch.length} clients with ${delay}s delay`);
       
-      const account = accountsToLaunch[i];
-      await gameProcessManager.launchGame(account, settings.gamePath);
+      for (let i = 0; i < accountsToLaunch.length; i++) {
+        if (i > 0) {
+          console.log(`Waiting ${delay} seconds before launching ${accountsToLaunch[i].login}...`);
+          await new Promise(resolve => setTimeout(resolve, delay * 1000));
+        }
+        
+        const account = accountsToLaunch[i];
+        console.log(`Launching ${account.login} (${i + 1}/${accountsToLaunch.length})`);
+        await gameProcessManager.launchGame(account, settings.gamePath);
+      }
     }
     
     return { success: true };

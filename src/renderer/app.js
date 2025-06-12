@@ -437,8 +437,12 @@ class PerfectWorldAccountManager {
               </div>
             </div>
             <div class="form-group">
-              <label>Launch Delay (seconds): ${this.settings?.launchDelay || 5}</label>
-              <input type="range" name="launchDelay" min="1" max="30" value="${this.settings?.launchDelay || 5}" step="1">
+              <label>Launch Delay for Group Operations (seconds): ${this.settings?.launchDelay || 15}</label>
+              <input type="range" name="launchDelay" min="10" max="60" value="${this.settings?.launchDelay || 15}" step="1">
+              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                Delay between launches when launching multiple clients.<br>
+                Individual launches have no delay. First client in group launches immediately.
+              </small>
             </div>
             <div class="form-group">
               <label>Process Monitoring Performance</label>
@@ -474,7 +478,7 @@ class PerfectWorldAccountManager {
       const delayLabel = form.querySelector('label');
       
       delaySlider.oninput = () => {
-        delayLabel.textContent = `Launch Delay (seconds): ${delaySlider.value}`;
+        delayLabel.textContent = `Launch Delay for Group Operations (seconds): ${delaySlider.value}`;
       };
       
       browseBtn.onclick = async () => {
@@ -592,7 +596,12 @@ class PerfectWorldAccountManager {
     
     try {
       await window.electronAPI.invoke('launch-game', selectedAccounts.map(a => a.id));
-      this.showToast(`Launching ${selectedAccounts.length} account(s)...`);
+      if (selectedAccounts.length === 1) {
+        this.showToast(`Launching ${selectedAccounts[0].login}...`);
+      } else {
+        const delay = this.settings?.launchDelay || 15;
+        this.showToast(`Launching ${selectedAccounts.length} accounts with ${delay}s delay between launches...`);
+      }
     } catch (error) {
       this.showErrorDialog('Failed to launch game', error.message);
     }
@@ -609,7 +618,13 @@ class PerfectWorldAccountManager {
     
     try {
       await window.electronAPI.invoke('launch-game', accountIds);
-      this.showToast(`Launching ${accountIds.length} account(s)...`);
+      if (accountIds.length === 1) {
+        const account = this.accounts.find(a => a.id === accountIds[0]);
+        this.showToast(`Launching ${account?.login || 'account'}...`);
+      } else {
+        const delay = this.settings?.launchDelay || 15;
+        this.showToast(`Launching all ${accountIds.length} accounts with ${delay}s delay between launches...`);
+      }
     } catch (error) {
       this.showErrorDialog('Failed to launch game', error.message);
     }

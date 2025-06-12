@@ -11,7 +11,7 @@ export class SettingsManager {
   private store: Store<StoreSchema>;
   private defaultSettings: Settings = {
     gamePath: '',
-    launchDelay: 5,
+    launchDelay: 15, // Changed default to 15 seconds (within 10-60 range)
     processMonitoringMode: 'normal',
   };
 
