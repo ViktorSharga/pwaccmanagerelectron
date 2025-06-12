@@ -14,6 +14,43 @@ let settingsManager: SettingsManager;
 let gameProcessManager: GameProcessManager;
 let webViewManager: WebViewManager;
 
+async function validateGameFolder(folderPath: string): Promise<boolean> {
+  try {
+    // Check both root folder and element subfolder
+    const possiblePaths = [
+      folderPath,
+      path.join(folderPath, 'element')
+    ];
+    
+    for (const checkPath of possiblePaths) {
+      try {
+        const files = await fs.readdir(checkPath);
+        const executableName = files.find(file => 
+          file.toLowerCase() === 'elementclient.exe'
+        );
+        
+        if (executableName) {
+          const fullPath = path.join(checkPath, executableName);
+          const stats = await fs.stat(fullPath);
+          if (stats.isFile()) {
+            console.log(`Found elementclient.exe at: ${fullPath}`);
+            return true;
+          }
+        }
+      } catch (dirError) {
+        // Directory doesn't exist or can't be read, continue to next path
+        continue;
+      }
+    }
+    
+    console.log(`elementclient.exe not found in ${folderPath} or ${path.join(folderPath, 'element')}`);
+    return false;
+  } catch (error) {
+    console.error('Error validating game folder:', error);
+    return false;
+  }
+}
+
 export function setupIpcHandlers() {
   accountStorage = new AccountStorage();
   settingsManager = new SettingsManager();
@@ -48,13 +85,17 @@ export function setupIpcHandlers() {
 
     if (!result.canceled && result.filePaths.length > 0) {
       const gamePath = result.filePaths[0];
-      const elementClientPath = path.join(gamePath, 'element', 'elementclient.exe');
       
       try {
-        await fs.access(elementClientPath);
-        return { success: true, path: gamePath };
-      } catch {
-        return { success: false, error: 'elementclient.exe not found in selected folder' };
+        const isValid = await validateGameFolder(gamePath);
+        if (isValid) {
+          return { success: true, path: gamePath };
+        } else {
+          return { success: false, error: 'elementclient.exe not found in selected folder or its element subfolder' };
+        }
+      } catch (error: any) {
+        console.error('Game folder validation error:', error);
+        return { success: false, error: `Error validating folder: ${error.message}` };
       }
     }
     

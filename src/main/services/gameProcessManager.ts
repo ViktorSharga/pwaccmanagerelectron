@@ -31,18 +31,59 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
+  private async findElementClientPath(folderPath: string): Promise<string | null> {
+    try {
+      // Check both root folder and element subfolder
+      const possiblePaths = [
+        folderPath,
+        path.join(folderPath, 'element')
+      ];
+      
+      for (const checkPath of possiblePaths) {
+        try {
+          const files = await fs.readdir(checkPath);
+          const executableName = files.find(file => 
+            file.toLowerCase() === 'elementclient.exe'
+          );
+          
+          if (executableName) {
+            const fullPath = path.join(checkPath, executableName);
+            const stats = await fs.stat(fullPath);
+            if (stats.isFile()) {
+              return fullPath;
+            }
+          }
+        } catch (dirError) {
+          // Directory doesn't exist or can't be read, continue to next path
+          continue;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding elementclient.exe:', error);
+      return null;
+    }
+  }
+
   async launchGame(account: Account, gamePath: string): Promise<void> {
-    const batContent = this.generateBatchFile(account, gamePath);
+    const gameExePath = await this.findElementClientPath(gamePath);
+    if (!gameExePath) {
+      throw new Error('elementclient.exe not found');
+    }
+    
+    const batContent = this.generateBatchFile(account, gameExePath);
     const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
     await fs.mkdir(tempDir, { recursive: true });
     
     const batPath = path.join(tempDir, `${account.login}_${Date.now()}.bat`);
     await fs.writeFile(batPath, batContent, { encoding: 'utf8' });
 
+    const gameDir = path.dirname(gameExePath);
     const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
       detached: true,
       stdio: 'ignore',
-      cwd: path.join(gamePath, 'element'),
+      cwd: gameDir,
     });
 
     child.unref();
@@ -60,7 +101,7 @@ export class GameProcessManager extends EventEmitter {
     setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
   }
 
-  private generateBatchFile(account: Account, gamePath: string): string {
+  private generateBatchFile(account: Account, gameExePath: string): string {
     const params = [
       'startbypatcher',
       `game:cpw`,
@@ -73,13 +114,17 @@ export class GameProcessManager extends EventEmitter {
       params.push(`server:${account.server}`);
     }
 
+    const gameDir = path.dirname(gameExePath);
+    const exeName = path.basename(gameExePath);
+
     let content = `@echo off\n`;
     content += `REM Account: ${account.login}\n`;
     content += `REM Server: ${account.server || 'Default'}\n`;
+    content += `REM Game executable: ${gameExePath}\n`;
     content += `REM Generated: ${new Date().toISOString()}\n\n`;
     
-    content += `cd /d "${path.join(gamePath, 'element')}"\n`;
-    content += `start elementclient.exe ${params.join(' ')}\n`;
+    content += `cd /d "${gameDir}"\n`;
+    content += `start "${exeName}" ${params.join(' ')}\n`;
     content += `exit\n`;
 
     return content;
