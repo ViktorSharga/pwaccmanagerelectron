@@ -240,6 +240,11 @@ export class AccountStorage {
       }
     }
 
+    // Force immediate save to disk after import to ensure data is available
+    if (savedAccounts.length > 0) {
+      await this.saveAccountsToDisk();
+    }
+    
     return { savedAccounts, errors };
   }
 

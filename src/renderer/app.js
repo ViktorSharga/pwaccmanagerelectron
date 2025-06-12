@@ -682,7 +682,12 @@ class PerfectWorldAccountManager {
         if (selectedAccounts && selectedAccounts.length > 0) {
           const importResult = await window.electronAPI.invoke('import-selected-accounts', selectedAccounts);
           if (importResult.success) {
+            // Add a small delay to ensure database write is complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Force reload accounts and update UI
             await this.loadAccounts();
+            this.updateUI();
             
             let message = `Successfully imported ${importResult.count} accounts.`;
             if (importResult.errors && importResult.errors.length > 0) {
