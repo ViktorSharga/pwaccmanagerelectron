@@ -236,15 +236,6 @@ export class GameProcessManager extends EventEmitter {
       console.warn('Generated batch file may have formatting issues');
     }
     
-    console.log(`Generated batch file for ${account.login} with character: ${account.characterName || 'none'}`);
-    
-    // Debug character name encoding
-    if (account.characterName) {
-      console.log(`🔤 Character name bytes:`, Buffer.from(account.characterName, 'utf8'));
-      console.log(`🔤 Character name length:`, account.characterName.length);
-      console.log(`🔤 Character name codepoints:`, [...account.characterName].map(c => c.charCodeAt(0)));
-    }
-    
     const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
     await fs.mkdir(tempDir, { recursive: true });
     
@@ -252,37 +243,10 @@ export class GameProcessManager extends EventEmitter {
     const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
     const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
     
-    // Write batch file with CP1251 encoding for Cyrillic support
-    try {
-      const iconv = await import('iconv-lite');
-      
-      // Ensure iconv-lite supports CP1251
-      if (!iconv.encodingExists('cp1251')) {
-        throw new Error('CP1251 encoding not supported');
-      }
-      
-      const encodedContent = iconv.encode(batContent, 'cp1251');
-      await fs.writeFile(batPath, encodedContent);
-      
-      console.log(`✅ Batch file written with CP1251 encoding: ${batPath}`);
-      
-      // Verify the encoding by reading it back
-      const readBack = await fs.readFile(batPath);
-      const decoded = iconv.decode(readBack, 'cp1251');
-      console.log(`🔍 Character name in batch file: "${account.characterName}"`);
-      console.log(`🔍 Decoded role parameter: "${decoded.match(/role:([^\s]*)/)?.[1] || 'not found'}"`);
-      
-    } catch (error) {
-      console.warn('CP1251 encoding failed, using UTF-8 with BOM:', error);
-      
-      // Fallback: Use UTF-8 with BOM for better Windows compatibility
-      const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-      const contentBuffer = Buffer.from(batContent, 'utf8');
-      const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
-      
-      await fs.writeFile(batPath, finalBuffer);
-      console.log(`⚠️ Batch file written with UTF-8 BOM encoding: ${batPath}`);
-    }
+    // Write batch file with CP1251 encoding
+    const iconv = await import('iconv-lite');
+    const encodedContent = iconv.encode(batContent, 'cp1251');
+    await fs.writeFile(batPath, encodedContent);
 
     const gameDir = path.dirname(gameExePath);
     const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
@@ -388,17 +352,12 @@ export class GameProcessManager extends EventEmitter {
   }
 
   private generateBatchFile(account: Account, gameExePath: string): string {
-    // Ensure character name is properly handled for CP1251
-    const characterName = account.characterName || '';
-    const login = account.login || '';
-    const server = account.server || 'Default';
-    
     const params = [
       'startbypatcher',
       `game:cpw`,
-      `user:${login}`,
+      `user:${account.login}`,
       `pwd:${account.password}`,
-      `role:${characterName}`,
+      `role:${account.characterName || ''}`,
     ];
 
     if (account.server) {
@@ -408,29 +367,17 @@ export class GameProcessManager extends EventEmitter {
     const gameDir = path.dirname(gameExePath);
     const exeName = path.basename(gameExePath);
 
-    // Proper batch file format with CP1251 for Cyrillic support
     let content = `@echo off\r\n`;
-    content += `chcp 1251 >nul 2>&1\r\n`;  // Set code page for Cyrillic characters, suppress output
-    content += `REM Perfect World Account Manager - Generated Batch File\r\n`;
-    content += `REM Account: ${login}\r\n`;
-    content += `REM Character: ${characterName || 'Not specified'}\r\n`;
-    content += `REM Server: ${server}\r\n`;
-    content += `REM Game executable: ${gameExePath}\r\n`;
-    content += `REM Generated: ${new Date().toISOString()}\r\n`;
+    content += `chcp 1251 >nul 2>&1\r\n`;
+    content += `REM Account: ${account.login}\r\n`;
+    content += `REM Character: ${account.characterName || 'Not specified'}\r\n`;
+    content += `REM Server: ${account.server || 'Default'}\r\n`;
     content += `\r\n`;
     
     content += `cd /d "${gameDir}"\r\n`;
-    content += `if exist "${exeName}" (\r\n`;
-    content += `    start "" "${exeName}" ${params.join(' ')}\r\n`;
-    content += `) else (\r\n`;
-    content += `    echo ERROR: ${exeName} not found in ${gameDir}\r\n`;
-    content += `    pause\r\n`;
-    content += `)\r\n`;
+    content += `start "" "${exeName}" ${params.join(' ')}\r\n`;
     content += `exit\r\n`;
 
-    // Log the content for debugging
-    console.log(`Batch file content with character: "${characterName}"`);
-    
     return content;
   }
 
@@ -559,37 +506,10 @@ export class GameProcessManager extends EventEmitter {
       const batchFileName = `pw_${sanitizedLogin}.bat`;
       const batchFilePath = path.join(gameDir, batchFileName);
       
-      // Write batch file with CP1251 encoding for Cyrillic support
-      try {
-        const iconv = await import('iconv-lite');
-        
-        // Ensure iconv-lite supports CP1251
-        if (!iconv.encodingExists('cp1251')) {
-          throw new Error('CP1251 encoding not supported');
-        }
-        
-        const encodedContent = iconv.encode(batchContent, 'cp1251');
-        await fs.writeFile(batchFilePath, encodedContent);
-        
-        console.log(`✅ Permanent batch file written with CP1251 encoding: ${batchFilePath}`);
-        
-        // Verify the encoding by reading it back
-        const readBack = await fs.readFile(batchFilePath);
-        const decoded = iconv.decode(readBack, 'cp1251');
-        console.log(`🔍 Permanent file character name: "${account.characterName}"`);
-        console.log(`🔍 Permanent file role parameter: "${decoded.match(/role:([^\s]*)/)?.[1] || 'not found'}"`);
-        
-      } catch (error) {
-        console.warn('CP1251 encoding failed for permanent file, using UTF-8 with BOM:', error);
-        
-        // Fallback: Use UTF-8 with BOM for better Windows compatibility
-        const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-        const contentBuffer = Buffer.from(batchContent, 'utf8');
-        const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
-        
-        await fs.writeFile(batchFilePath, finalBuffer);
-        console.log(`⚠️ Permanent batch file written with UTF-8 BOM encoding: ${batchFilePath}`);
-      }
+      // Write batch file with CP1251 encoding
+      const iconv = await import('iconv-lite');
+      const encodedContent = iconv.encode(batchContent, 'cp1251');
+      await fs.writeFile(batchFilePath, encodedContent);
       
       console.log(`Created permanent batch file: ${batchFilePath}`);
       return batchFilePath;
