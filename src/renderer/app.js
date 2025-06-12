@@ -4,6 +4,7 @@ class PerfectWorldAccountManager {
     this.accounts = [];
     this.settings = null;
     this.selectedAccountIds = new Set();
+    this.runningProcesses = new Map(); // Map accountId -> processInfo
     
     this.initialize();
   }
@@ -11,6 +12,7 @@ class PerfectWorldAccountManager {
   async initialize() {
     await this.loadSettings();
     await this.loadAccounts();
+    await this.loadRunningProcesses();
     this.setupEventListeners();
     this.updateUI();
   }
@@ -31,6 +33,25 @@ class PerfectWorldAccountManager {
     } catch (error) {
       console.error('Failed to load accounts:', error);
       this.accounts = [];
+    }
+  }
+
+  async loadRunningProcesses() {
+    try {
+      const runningProcesses = await window.electronAPI.invoke('get-running-processes');
+      this.runningProcesses.clear();
+      
+      for (const processInfo of runningProcesses) {
+        this.runningProcesses.set(processInfo.accountId, processInfo);
+        
+        // Update account running status
+        const account = this.accounts.find(a => a.id === processInfo.accountId);
+        if (account) {
+          account.isRunning = true;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load running processes:', error);
     }
   }
 
@@ -63,6 +84,14 @@ class PerfectWorldAccountManager {
       const account = this.accounts.find(a => a.id === data.accountId);
       if (account) {
         account.isRunning = data.running;
+        
+        // Update process information
+        if (data.running && data.processInfo) {
+          this.runningProcesses.set(data.accountId, data.processInfo);
+        } else {
+          this.runningProcesses.delete(data.accountId);
+        }
+        
         this.renderAccountTable();
         this.updateStatusBar();
       }
@@ -114,6 +143,18 @@ class PerfectWorldAccountManager {
     );
   }
 
+  getRunningStatusText(accountId) {
+    const processInfo = this.runningProcesses.get(accountId);
+    if (processInfo) {
+      let statusText = `Running (PID: ${processInfo.pid})`;
+      if (processInfo.windowTitle && processInfo.windowTitle.trim()) {
+        statusText += `\nWindow: ${processInfo.windowTitle}`;
+      }
+      return statusText;
+    }
+    return 'Running';
+  }
+
   renderAccountTable() {
     const tbody = document.getElementById('account-tbody');
     if (!tbody) return;
@@ -142,7 +183,7 @@ class PerfectWorldAccountManager {
         <td>${this.escapeHtml(account.owner || '')}</td>
         <td>
           <span class="status-indicator ${isRunning ? 'running' : 'stopped'}">
-            ${isRunning ? 'Running' : 'Stopped'}
+            ${isRunning ? this.getRunningStatusText(account.id) : 'Stopped'}
           </span>
         </td>
         <td>

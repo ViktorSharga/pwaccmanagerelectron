@@ -30,6 +30,7 @@ export interface ProcessInfo {
   accountId: string;
   pid: number;
   login: string;
+  windowTitle?: string;
 }
 
 export interface ImportResult {

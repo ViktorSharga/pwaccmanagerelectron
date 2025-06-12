@@ -138,8 +138,10 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('close-game', async (_, accountIds: string[]) => {
-    for (const accountId of accountIds) {
-      await gameProcessManager.closeGame(accountId);
+    if (accountIds.length === 1) {
+      await gameProcessManager.closeGame(accountIds[0]);
+    } else {
+      await gameProcessManager.closeMultipleGames(accountIds);
     }
     return { success: true };
   });
@@ -258,7 +260,12 @@ export function setupIpcHandlers() {
     return { success: true };
   });
 
+  ipcMain.handle('get-running-processes', async () => {
+    return gameProcessManager.getRunningProcesses();
+  });
+
   gameProcessManager.on('status-update', (accountId: string, running: boolean) => {
-    mainWindow?.webContents.send('process-status-update', { accountId, running });
+    const processInfo = running ? gameProcessManager.getRunningProcesses().find(p => p.accountId === accountId) : null;
+    mainWindow?.webContents.send('process-status-update', { accountId, running, processInfo });
   });
 }

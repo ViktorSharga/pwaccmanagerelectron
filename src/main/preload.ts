@@ -16,6 +16,7 @@ const validChannels = [
   'import-accounts',
   'import-selected-accounts',
   'process-status-update',
+  'get-running-processes',
   'open-webview',
   'close-webview',
   'close-all-webviews',
