@@ -58,7 +58,7 @@ async function validateGameFolder(folderPath: string): Promise<boolean> {
 export function setupIpcHandlers() {
   accountStorage = new AccountStorage();
   settingsManager = new SettingsManager();
-  gameProcessManager = new GameProcessManager();
+  gameProcessManager = new GameProcessManager(settingsManager);
   webViewManager = new WebViewManager();
 
   ipcMain.handle('get-accounts', async () => {
@@ -88,7 +88,14 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('save-settings', async (_, settings: Settings) => {
-    return await settingsManager.saveSettings(settings);
+    const result = await settingsManager.saveSettings(settings);
+    
+    // Update process monitoring performance if settings changed
+    if (gameProcessManager && settings.processMonitoringMode) {
+      gameProcessManager.updatePerformanceSettings();
+    }
+    
+    return result;
   });
 
   ipcMain.handle('select-game-folder', async () => {

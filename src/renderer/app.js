@@ -146,11 +146,7 @@ class PerfectWorldAccountManager {
   getRunningStatusText(accountId) {
     const processInfo = this.runningProcesses.get(accountId);
     if (processInfo) {
-      let statusText = `Running (PID: ${processInfo.pid})`;
-      if (processInfo.windowTitle && processInfo.windowTitle.trim()) {
-        statusText += `\nWindow: ${processInfo.windowTitle}`;
-      }
-      return statusText;
+      return `Running (PID: ${processInfo.pid})`;
     }
     return 'Running';
   }
@@ -440,6 +436,19 @@ class PerfectWorldAccountManager {
               <label>Launch Delay (seconds): ${this.settings?.launchDelay || 5}</label>
               <input type="range" name="launchDelay" min="1" max="30" value="${this.settings?.launchDelay || 5}" step="1">
             </div>
+            <div class="form-group">
+              <label>Process Monitoring Performance</label>
+              <select name="processMonitoringMode">
+                <option value="low" ${this.settings?.processMonitoringMode === 'low' ? 'selected' : ''}>Low (Best Performance)</option>
+                <option value="normal" ${this.settings?.processMonitoringMode === 'normal' || !this.settings?.processMonitoringMode ? 'selected' : ''}>Normal (Balanced)</option>
+                <option value="high" ${this.settings?.processMonitoringMode === 'high' ? 'selected' : ''}>High (Most Responsive)</option>
+              </select>
+              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                Low: Reduces CPU usage but slower process detection<br>
+                Normal: Balanced performance and responsiveness<br>
+                High: Fastest detection but higher CPU usage
+              </small>
+            </div>
           </form>
         </div>
         <div class="dialog-footer">
@@ -488,6 +497,7 @@ class PerfectWorldAccountManager {
         const newSettings = {
           gamePath: formData.get('gamePath'),
           launchDelay: parseInt(formData.get('launchDelay'), 10),
+          processMonitoringMode: formData.get('processMonitoringMode'),
         };
         
         try {

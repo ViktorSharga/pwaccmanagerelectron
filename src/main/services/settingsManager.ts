@@ -12,6 +12,7 @@ export class SettingsManager {
   private defaultSettings: Settings = {
     gamePath: '',
     launchDelay: 5,
+    processMonitoringMode: 'normal',
   };
 
   constructor() {
