@@ -131,9 +131,25 @@ export class GameProcessManager extends EventEmitter {
       console.log(`Checking ${this.processes.size} tracked processes for crashes...`);
       
       for (const [accountId, processInfo] of this.processes.entries()) {
-        const stillRunning = await this.checkIfProcessExists(processInfo.pid);
+        let stillRunning = false;
+        
+        if (processInfo.pid === -1) {
+          // For processes without PID, check if any ElementClient.exe is running
+          // This is less precise but better than nothing
+          try {
+            const currentPids = await this.getElementClientProcessesUltraLight();
+            stillRunning = currentPids.length > 0;
+          } catch (error) {
+            console.warn(`Could not check ElementClient processes:`, error);
+            stillRunning = true; // Assume still running if we can't check
+          }
+        } else {
+          // For processes with PID, check specifically
+          stillRunning = await this.checkIfProcessExists(processInfo.pid);
+        }
+        
         if (!stillRunning) {
-          console.log(`Process ${processInfo.pid} for account ${processInfo.login} crashed or was closed`);
+          console.log(`Process ${processInfo.pid === -1 ? '(unknown PID)' : processInfo.pid} for account ${processInfo.login} crashed or was closed`);
           this.processes.delete(accountId);
           this.emit('status-update', accountId, false);
         }
@@ -244,7 +260,7 @@ export class GameProcessManager extends EventEmitter {
   }
 
   private async findNewElementClientProcess(account: Account, pidsBeforeLaunch: Set<number>): Promise<void> {
-    const maxAttempts = 4; // Further reduced attempts
+    const maxAttempts = 6; // Increased attempts for better detection
     let attempts = 0;
     
     const findProcess = async (): Promise<void> => {
@@ -255,17 +271,20 @@ export class GameProcessManager extends EventEmitter {
         const currentPids = await this.getElementClientProcessesUltraLight();
         const newPids = currentPids.filter(pid => !pidsBeforeLaunch.has(pid));
         
-        if (newPids.length > 0) {
-          // Just take the first new process - no need for complex matching
-          // We launched it, so it's almost certainly ours
-          const targetPid = newPids[0];
+        // Filter out PIDs that are already assigned to other accounts
+        const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid));
+        const availablePids = newPids.filter(pid => !assignedPids.has(pid));
+        
+        if (availablePids.length > 0) {
+          // Take the first available PID
+          const targetPid = availablePids[0];
           
-          // Associate the process with the account (no window title needed)
+          // Associate the process with the account
           this.processes.set(account.id, {
             accountId: account.id,
             pid: targetPid,
             login: account.login,
-            windowTitle: '', // Skip window title - not critical
+            windowTitle: '',
           });
           
           console.log(`Associated ElementClient.exe process ${targetPid} with account ${account.login}`);
@@ -278,21 +297,42 @@ export class GameProcessManager extends EventEmitter {
         
         // If no new process found and we haven't reached max attempts, try again
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 3000);
+          setTimeout(findProcess, 2500); // Slightly longer delay
         } else {
           console.warn(`Could not find ElementClient.exe process for account ${account.login} after ${maxAttempts} attempts`);
-          // Still keep status as running - the process might exist but we couldn't detect it
+          
+          // If we still can't find a PID, create a dummy entry so we can at least try to kill processes by name
+          this.processes.set(account.id, {
+            accountId: account.id,
+            pid: -1, // Special marker for "unknown PID"
+            login: account.login,
+            windowTitle: '',
+          });
+          
+          console.log(`Created fallback process entry for ${account.login} (PID unknown)`);
+          this.emit('status-update', account.id, true);
+          this.startOptionalCrashDetection();
         }
       } catch (error) {
         console.error('Error finding new ElementClient process:', error);
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 3000);
+          setTimeout(findProcess, 2500);
+        } else {
+          // Create fallback entry even on error
+          this.processes.set(account.id, {
+            accountId: account.id,
+            pid: -1,
+            login: account.login,
+            windowTitle: '',
+          });
+          this.emit('status-update', account.id, true);
+          this.startOptionalCrashDetection();
         }
       }
     };
     
-    // Start looking for the process after a short delay
-    setTimeout(findProcess, 2000);
+    // Start looking for the process after a delay
+    setTimeout(findProcess, 1500);
   }
 
   private generateBatchFile(account: Account, gameExePath: string): string {
@@ -360,15 +400,38 @@ export class GameProcessManager extends EventEmitter {
     }
 
     try {
-      console.log(`Attempting to close ElementClient.exe process ${processInfo.pid} for account ${processInfo.login}`);
-      
-      if (process.platform === 'win32') {
-        // Use taskkill to force close the process
-        const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
-        console.log(`Taskkill output: ${stdout}`);
-        if (stderr) console.error(`Taskkill error: ${stderr}`);
+      if (processInfo.pid === -1) {
+        // Handle processes without known PID - kill by process name and login
+        console.log(`Attempting to close ElementClient.exe processes for account ${processInfo.login} (PID unknown)`);
+        
+        if (process.platform === 'win32') {
+          // First try to find processes by tasklist and kill them
+          try {
+            const { stdout } = await execAsync(`tasklist /fi "imagename eq ElementClient.exe" /fo csv /nh`);
+            const lines = stdout.split('\n').filter(line => line.includes('ElementClient.exe'));
+            
+            if (lines.length > 0) {
+              // Kill all ElementClient processes (this is aggressive but necessary when PID is unknown)
+              await execAsync(`taskkill /IM ElementClient.exe /F`);
+              console.log(`Killed ElementClient.exe processes by image name`);
+            } else {
+              console.log(`No ElementClient.exe processes found to kill`);
+            }
+          } catch (killError) {
+            console.warn(`Failed to kill ElementClient.exe by image name:`, killError);
+          }
+        }
       } else {
-        process.kill(processInfo.pid, 'SIGTERM');
+        // Handle processes with known PID
+        console.log(`Attempting to close ElementClient.exe process ${processInfo.pid} for account ${processInfo.login}`);
+        
+        if (process.platform === 'win32') {
+          const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
+          console.log(`Taskkill output: ${stdout}`);
+          if (stderr) console.error(`Taskkill error: ${stderr}`);
+        } else {
+          process.kill(processInfo.pid, 'SIGTERM');
+        }
       }
       
       // Remove from our tracking immediately
@@ -380,9 +443,9 @@ export class GameProcessManager extends EventEmitter {
         this.stopCrashDetection();
       }
       
-      console.log(`Successfully closed process ${processInfo.pid} for account ${processInfo.login}`);
+      console.log(`Successfully closed process for account ${processInfo.login}`);
     } catch (error) {
-      console.error(`Failed to close game process ${processInfo.pid}:`, error);
+      console.error(`Failed to close game process for ${processInfo.login}:`, error);
       
       // Even if killing failed, remove from tracking and update status
       this.processes.delete(accountId);
