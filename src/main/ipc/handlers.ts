@@ -150,8 +150,9 @@ export function setupIpcHandlers() {
         }
         
         const account = accountsToLaunch[i];
-        console.log(`Launching ${account.login} (${i + 1}/${accountsToLaunch.length})`);
+        console.log(`🚀 Launching ${account.login} (${i + 1}/${accountsToLaunch.length})`);
         await gameProcessManager.launchGame(account, settings.gamePath);
+        console.log(`✅ Launch initiated for ${account.login}`);
       }
     }
     

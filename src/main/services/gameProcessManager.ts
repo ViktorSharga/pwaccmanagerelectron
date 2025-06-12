@@ -133,12 +133,24 @@ export class GameProcessManager extends EventEmitter {
       for (const [accountId, processInfo] of this.processes.entries()) {
         let stillRunning = false;
         
-        if (processInfo.pid === -1) {
-          // For processes without PID, check if any ElementClient.exe is running
+        if (processInfo.pid === -1 || processInfo.pid === -2) {
+          // For processes without PID or in launching state, check if any ElementClient.exe is running
           // This is less precise but better than nothing
           try {
             const currentPids = await this.getElementClientProcessesUltraLight();
             stillRunning = currentPids.length > 0;
+            
+            // If in launching state (-2) and we find processes, try to associate one
+            if (processInfo.pid === -2 && currentPids.length > 0) {
+              const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
+              const availablePids = currentPids.filter(pid => !assignedPids.has(pid));
+              
+              if (availablePids.length > 0) {
+                // Update with real PID
+                processInfo.pid = availablePids[0];
+                console.log(`🔄 Late association: ${processInfo.login} now has PID ${availablePids[0]}`);
+              }
+            }
           } catch (error) {
             console.warn(`Could not check ElementClient processes:`, error);
             stillRunning = true; // Assume still running if we can't check
@@ -212,7 +224,10 @@ export class GameProcessManager extends EventEmitter {
     const gameExePath = await this.findElementClientPath(gamePath);
     
     // Get PIDs before launch to compare (ultra-lightweight)
-    const pidsBeforeLaunch = new Set(await this.getElementClientProcessesUltraLight());
+    // Include already tracked processes to avoid conflicts
+    const currentPids = await this.getElementClientProcessesUltraLight();
+    const trackedPids = Array.from(this.processes.values()).map(p => p.pid).filter(pid => pid !== -1);
+    const pidsBeforeLaunch = new Set([...currentPids, ...trackedPids]);
     
     const batContent = this.generateBatchFile(account, gameExePath);
     
@@ -249,6 +264,14 @@ export class GameProcessManager extends EventEmitter {
 
     child.unref();
     
+    // Create a placeholder entry immediately to prevent status conflicts
+    this.processes.set(account.id, {
+      accountId: account.id,
+      pid: -2, // Special marker for "launching" state
+      login: account.login,
+      windowTitle: '',
+    });
+    
     // Set initial status to running (will be updated when we find the actual process)
     this.emit('status-update', account.id, true);
     
@@ -279,7 +302,7 @@ export class GameProcessManager extends EventEmitter {
           // Take the first available PID
           const targetPid = availablePids[0];
           
-          // Associate the process with the account
+          // Update the existing entry with the real PID
           this.processes.set(account.id, {
             accountId: account.id,
             pid: targetPid,
@@ -287,7 +310,7 @@ export class GameProcessManager extends EventEmitter {
             windowTitle: '',
           });
           
-          console.log(`Associated ElementClient.exe process ${targetPid} with account ${account.login}`);
+          console.log(`✅ Associated ElementClient.exe process ${targetPid} with account ${account.login}`);
           this.emit('status-update', account.id, true);
           
           // Start crash detection now that we have a process to monitor
@@ -400,9 +423,9 @@ export class GameProcessManager extends EventEmitter {
     }
 
     try {
-      if (processInfo.pid === -1) {
-        // Handle processes without known PID - kill by process name and login
-        console.log(`Attempting to close ElementClient.exe processes for account ${processInfo.login} (PID unknown)`);
+      if (processInfo.pid === -1 || processInfo.pid === -2) {
+        // Handle processes without known PID or in launching state
+        console.log(`Attempting to close ElementClient.exe processes for account ${processInfo.login} (PID ${processInfo.pid === -2 ? 'launching' : 'unknown'})`);
         
         if (process.platform === 'win32') {
           // First try to find processes by tasklist and kill them

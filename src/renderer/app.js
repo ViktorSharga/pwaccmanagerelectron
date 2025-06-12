@@ -147,7 +147,9 @@ class PerfectWorldAccountManager {
   getRunningStatusText(accountId) {
     const processInfo = this.runningProcesses.get(accountId);
     if (processInfo) {
-      if (processInfo.pid === -1) {
+      if (processInfo.pid === -2) {
+        return 'Launching...';
+      } else if (processInfo.pid === -1) {
         return 'Running (PID: detecting...)';
       }
       return `Running (PID: ${processInfo.pid})`;
