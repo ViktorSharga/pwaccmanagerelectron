@@ -318,12 +318,29 @@ export class WebViewManager {
   closeWebView(accountId: string): void {
     const webView = this.webViews.get(accountId);
     if (webView && mainWindow) {
-      mainWindow.removeBrowserView(webView);
-      (webView as any).destroy();
-      this.webViews.delete(accountId);
-      
-      if (this.webViews.size === 0) {
-        mainWindow.setBrowserView(null);
+      try {
+        // Remove the BrowserView from the main window
+        mainWindow.removeBrowserView(webView);
+        
+        // Clean up the webContents
+        if (webView.webContents && !webView.webContents.isDestroyed()) {
+          webView.webContents.removeAllListeners();
+          webView.webContents.close();
+        }
+        
+        // Remove from our tracking
+        this.webViews.delete(accountId);
+        
+        // If no more webviews, clear the browser view
+        if (this.webViews.size === 0) {
+          mainWindow.setBrowserView(null);
+        }
+        
+        console.log(`WebView for account ${accountId} closed successfully`);
+      } catch (error) {
+        console.error('Error closing WebView:', error);
+        // Still remove from tracking even if cleanup failed
+        this.webViews.delete(accountId);
       }
     }
   }
