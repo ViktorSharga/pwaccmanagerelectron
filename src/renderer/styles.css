@@ -30,15 +30,27 @@ body {
 .toolbar-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
+  gap: 6px;
+  min-width: 40px;
   height: 40px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
   border-radius: 4px;
   transition: background-color 0.2s;
   margin: 0 2px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.toolbar-btn svg {
+  flex-shrink: 0;
+}
+
+.toolbar-btn .btn-text {
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .toolbar-btn:hover:not(:disabled) {
