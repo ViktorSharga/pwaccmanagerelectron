@@ -1,8 +1,8 @@
 import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { Account } from '@shared/types';
-import { generateAccountId, validateAccount } from '@shared/utils/validation';
+import { Account } from '../../shared/types';
+import { generateAccountId, validateAccount } from '../../shared/utils/validation';
 
 export class AccountStorage {
   private accountsPath: string;

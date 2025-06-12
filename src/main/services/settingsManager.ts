@@ -1,5 +1,5 @@
 import Store from 'electron-store';
-import { Settings } from '@shared/types';
+import { Settings } from '../../shared/types';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 

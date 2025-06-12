@@ -3,7 +3,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { Account, ProcessInfo } from '@shared/types';
+import { Account, ProcessInfo } from '../../shared/types';
 
 export class GameProcessManager extends EventEmitter {
   private processes: Map<string, ProcessInfo> = new Map();

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { Account } from '@shared/types';
-import { generateAccountId } from '@shared/utils/validation';
+import { Account } from '../../shared/types';
+import { generateAccountId } from '../../shared/utils/validation';
 
 export class BatchFileScanner {
   async scanFolder(folderPath: string): Promise<Partial<Account>[]> {

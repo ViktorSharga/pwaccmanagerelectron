@@ -1,7 +1,7 @@
 import { ipcMain, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { Account, Settings } from '@shared/types';
+import { Account, Settings } from '../../shared/types';
 import { AccountStorage } from '../services/accountStorage';
 import { SettingsManager } from '../services/settingsManager';
 import { GameProcessManager } from '../services/gameProcessManager';
