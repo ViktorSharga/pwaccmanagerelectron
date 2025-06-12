@@ -1,5 +1,12 @@
 import { Account } from '../../shared/types';
 
+interface MenuItem {
+  label?: string;
+  action?: string;
+  disabled?: boolean;
+  type?: 'separator';
+}
+
 export class ContextMenu {
   private menu: HTMLElement | null = null;
 
@@ -9,7 +16,7 @@ export class ContextMenu {
     this.menu = document.createElement('div');
     this.menu.className = 'context-menu';
     
-    const items = [
+    const items: MenuItem[] = [
       { label: 'Launch', action: 'play', disabled: account.isRunning },
       { label: 'Close', action: 'close', disabled: !account.isRunning },
       { type: 'separator' },
@@ -32,12 +39,12 @@ export class ContextMenu {
           menuItem.style.opacity = '0.5';
           menuItem.style.pointerEvents = 'none';
         }
-        menuItem.textContent = item.label;
+        menuItem.textContent = item.label || '';
         
         menuItem.addEventListener('click', () => {
           this.hide();
           document.dispatchEvent(new CustomEvent('context-menu-action', {
-            detail: { action: item.action, account }
+            detail: { action: item.action || '', account }
           }));
         });
         
