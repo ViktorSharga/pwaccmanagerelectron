@@ -12,9 +12,15 @@ export class WebViewManager {
       
       const existingView = this.webViews.get(account.id);
       if (existingView) {
-        console.log('WebView already exists, focusing...');
-        this.focusWebView(account.id);
-        return;
+        // Check if the existing WebView is still valid
+        if (existingView.webContents && !existingView.webContents.isDestroyed()) {
+          console.log('WebView already exists and is valid, focusing...');
+          this.focusWebView(account.id);
+          return;
+        } else {
+          console.log('WebView exists but is destroyed, removing and creating new one...');
+          this.webViews.delete(account.id);
+        }
       }
 
       if (!mainWindow) {
@@ -310,8 +316,29 @@ export class WebViewManager {
   focusWebView(accountId: string): void {
     const webView = this.webViews.get(accountId);
     if (webView && mainWindow) {
-      mainWindow.setBrowserView(webView);
-      webView.webContents.focus();
+      try {
+        // Ensure the WebView is properly attached to the main window
+        mainWindow.setBrowserView(webView);
+        
+        // Re-position the WebView in case window was resized
+        const bounds = mainWindow.getBounds();
+        webView.setBounds({
+          x: 0,
+          y: 40,
+          width: bounds.width,
+          height: bounds.height - 80,
+        });
+        
+        // Focus the WebView
+        if (webView.webContents && !webView.webContents.isDestroyed()) {
+          webView.webContents.focus();
+          console.log(`WebView for account ${accountId} focused successfully`);
+        }
+      } catch (error) {
+        console.error('Error focusing WebView:', error);
+        // If focusing fails, remove the invalid WebView
+        this.webViews.delete(accountId);
+      }
     }
   }
 
