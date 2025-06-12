@@ -4,6 +4,7 @@ const validChannels = [
   'get-accounts',
   'save-account',
   'delete-account',
+  'delete-batch-file',
   'launch-game',
   'close-game',
   'get-settings',

@@ -69,6 +69,16 @@ export function setupIpcHandlers() {
     return await accountStorage.deleteAccount(id);
   });
 
+  ipcMain.handle('delete-batch-file', async (_, filePath: string) => {
+    try {
+      await fs.unlink(filePath);
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to delete batch file:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('get-settings', async () => {
     return await settingsManager.getSettings();
   });

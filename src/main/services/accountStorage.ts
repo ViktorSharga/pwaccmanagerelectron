@@ -65,7 +65,9 @@ export class AccountStorage {
         throw new Error('An account with this login already exists');
       }
 
-      savedAccount = { ...this.accounts[index], ...account } as Account;
+      // Exclude runtime-only fields when updating
+      const { sourceBatchFile, ...accountToSave } = account;
+      savedAccount = { ...this.accounts[index], ...accountToSave } as Account;
       this.accounts[index] = savedAccount;
     } else {
       const duplicate = this.accounts.find(a => a.login === account.login);
@@ -73,8 +75,10 @@ export class AccountStorage {
         throw new Error('An account with this login already exists');
       }
 
+      // Exclude runtime-only fields when saving
+      const { sourceBatchFile, ...accountToSave } = account;
       savedAccount = {
-        ...account,
+        ...accountToSave,
         id: generateAccountId(),
         isRunning: false,
       } as Account;

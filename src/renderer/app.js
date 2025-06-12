@@ -307,6 +307,13 @@ class PerfectWorldAccountManager {
               <label>Owner</label>
               <input type="text" name="owner" value="${account?.owner || ''}" placeholder="Supports Cyrillic characters">
             </div>
+            ${account?.sourceBatchFile ? `
+            <div class="form-group">
+              <label>Source Batch File</label>
+              <input type="text" value="${this.escapeHtml(account.sourceBatchFile)}" readonly style="background: #f5f5f5; color: #666;">
+              <small style="color: #666; font-size: 12px;">This account was imported from a batch file</small>
+            </div>
+            ` : ''}
           </form>
         </div>
         <div class="dialog-footer">
@@ -471,22 +478,58 @@ class PerfectWorldAccountManager {
     if (this.selectedAccountIds.size === 0) return;
     
     const selectedAccounts = this.accounts.filter(a => this.selectedAccountIds.has(a.id));
-    const message = selectedAccounts.length === 1
+    const accountsWithBatchFiles = selectedAccounts.filter(a => a.sourceBatchFile);
+    
+    let message = selectedAccounts.length === 1
       ? `Are you sure you want to delete account "${selectedAccounts[0].login}"?`
       : `Are you sure you want to delete ${selectedAccounts.length} accounts?`;
     
-    const confirmed = await this.showConfirmDialog('Delete Accounts', message);
-    if (!confirmed) return;
-    
-    for (const account of selectedAccounts) {
-      try {
-        await window.electronAPI.invoke('delete-account', account.id);
-        const index = this.accounts.findIndex(a => a.id === account.id);
-        if (index !== -1) {
-          this.accounts.splice(index, 1);
+    // Check if any accounts have associated batch files
+    if (accountsWithBatchFiles.length > 0) {
+      const batchFileMessage = accountsWithBatchFiles.length === 1
+        ? `\n\nThis account has an associated batch file. Do you also want to delete the batch file "${accountsWithBatchFiles[0].sourceBatchFile}"?`
+        : `\n\n${accountsWithBatchFiles.length} of these accounts have associated batch files. Do you also want to delete the batch files?`;
+      
+      const deleteBatchFiles = await this.showDeleteWithBatchFilesDialog(message + batchFileMessage, accountsWithBatchFiles);
+      if (deleteBatchFiles === null) return; // User cancelled
+      
+      // Delete accounts and optionally batch files
+      for (const account of selectedAccounts) {
+        try {
+          await window.electronAPI.invoke('delete-account', account.id);
+          
+          // Delete batch file if requested and it exists
+          if (deleteBatchFiles && account.sourceBatchFile) {
+            try {
+              await window.electronAPI.invoke('delete-batch-file', account.sourceBatchFile);
+            } catch (batchError) {
+              console.warn('Failed to delete batch file:', batchError);
+            }
+          }
+          
+          const index = this.accounts.findIndex(a => a.id === account.id);
+          if (index !== -1) {
+            this.accounts.splice(index, 1);
+          }
+        } catch (error) {
+          console.error('Failed to delete account:', error);
         }
-      } catch (error) {
-        console.error('Failed to delete account:', error);
+      }
+    } else {
+      // Normal delete without batch files
+      const confirmed = await this.showConfirmDialog('Delete Accounts', message);
+      if (!confirmed) return;
+      
+      for (const account of selectedAccounts) {
+        try {
+          await window.electronAPI.invoke('delete-account', account.id);
+          const index = this.accounts.findIndex(a => a.id === account.id);
+          if (index !== -1) {
+            this.accounts.splice(index, 1);
+          }
+        } catch (error) {
+          console.error('Failed to delete account:', error);
+        }
       }
     }
     
@@ -779,6 +822,72 @@ class PerfectWorldAccountManager {
         if (e.target === overlay) {
           cleanup();
           resolve(false);
+        }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
+      };
+    });
+  }
+
+  async showDeleteWithBatchFilesDialog(message, accountsWithBatchFiles) {
+    return new Promise((resolve) => {
+      const overlay = this.createOverlay();
+      const dialog = this.createDialog();
+      
+      dialog.innerHTML = `
+        <div class="dialog-header">
+          <h2>Delete Accounts</h2>
+        </div>
+        <div class="dialog-content">
+          <p style="white-space: pre-line;">${message}</p>
+          <div style="margin: 16px 0;">
+            <strong>Batch files to be affected:</strong>
+            <ul style="margin: 8px 0; padding-left: 20px; max-height: 150px; overflow-y: auto;">
+              ${accountsWithBatchFiles.map(account => `
+                <li style="margin: 4px 0; font-size: 12px; color: #666;">
+                  ${this.escapeHtml(account.sourceBatchFile.split('/').pop())} (${this.escapeHtml(account.login)})
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-secondary" id="delete-accounts-only-btn">Delete Accounts Only</button>
+          <button type="button" class="btn btn-primary" id="delete-all-btn">Delete Accounts + Batch Files</button>
+        </div>
+      `;
+      
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      
+      const deleteAllBtn = dialog.querySelector('#delete-all-btn');
+      const deleteAccountsOnlyBtn = dialog.querySelector('#delete-accounts-only-btn');
+      const cancelBtn = dialog.querySelector('#cancel-btn');
+      
+      const cleanup = () => overlay.remove();
+      
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(null);
+      };
+      
+      deleteAccountsOnlyBtn.onclick = () => {
+        cleanup();
+        resolve(false);
+      };
+      
+      deleteAllBtn.onclick = () => {
+        cleanup();
+        resolve(true);
+      };
+      
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(null);
         }
       };
       
