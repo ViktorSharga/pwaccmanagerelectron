@@ -171,23 +171,31 @@ export class AccountStorage {
     };
   }
 
-  async importSelectedAccounts(selectedAccounts: Partial<Account>[]): Promise<Account[]> {
+  async importSelectedAccounts(selectedAccounts: Partial<Account>[]): Promise<{
+    savedAccounts: Account[];
+    errors: { login: string; error: string }[];
+  }> {
     const savedAccounts: Account[] = [];
+    const errors: { login: string; error: string }[] = [];
     
     for (const account of selectedAccounts) {
       try {
-        const saved = await this.saveAccount(account);
+        // Remove id and isRunning fields to ensure accounts are treated as new
+        const { id, isRunning, ...accountToImport } = account;
+        const saved = await this.saveAccount(accountToImport);
         savedAccounts.push(saved);
-      } catch (error) {
-        console.error(`Failed to import account ${account.login}:`, error);
+      } catch (error: any) {
+        const errorMsg = error.message || 'Unknown error';
+        errors.push({ login: account.login || 'Unknown', error: errorMsg });
       }
     }
 
-    return savedAccounts;
+    return { savedAccounts, errors };
   }
 
   async importAccounts(filePath: string, format: 'json' | 'csv'): Promise<Account[]> {
     const importData = await this.parseImportFile(filePath, format);
-    return await this.importSelectedAccounts(importData.accounts);
+    const result = await this.importSelectedAccounts(importData.accounts);
+    return result.savedAccounts;
   }
 }

@@ -212,8 +212,12 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('import-selected-accounts', async (_, selectedAccounts: Partial<Account>[]) => {
-    const savedAccounts = await accountStorage.importSelectedAccounts(selectedAccounts);
-    return { success: true, count: savedAccounts.length };
+    const result = await accountStorage.importSelectedAccounts(selectedAccounts);
+    return { 
+      success: true, 
+      count: result.savedAccounts.length, 
+      errors: result.errors 
+    };
   });
 
   ipcMain.handle('open-webview', async (_, accountId: string) => {

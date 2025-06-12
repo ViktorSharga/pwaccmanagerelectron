@@ -683,7 +683,14 @@ class PerfectWorldAccountManager {
           const importResult = await window.electronAPI.invoke('import-selected-accounts', selectedAccounts);
           if (importResult.success) {
             await this.loadAccounts();
-            this.showToast(`Successfully imported ${importResult.count} accounts.`);
+            
+            let message = `Successfully imported ${importResult.count} accounts.`;
+            if (importResult.errors && importResult.errors.length > 0) {
+              message += `\n\nErrors during import:\n${importResult.errors.map(e => `• ${e.login}: ${e.error}`).join('\n')}`;
+              this.showErrorDialog('Import Completed with Errors', message);
+            } else {
+              this.showToast(message);
+            }
           }
         }
       } else {

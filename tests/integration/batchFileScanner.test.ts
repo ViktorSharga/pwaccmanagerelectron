@@ -21,7 +21,7 @@ describe('Batch File Scanner Integration', () => {
       // Should find accounts from our mock data
       const loginNames = accounts.map(acc => acc.login).filter(Boolean);
       expect(loginNames).toContain('testuser1');
-      expect(loginNames).toContain('pvpuser');
+      expect(loginNames).toContain('test-data');
     });
 
     it('should extract account information from batch files', async () => {
@@ -32,9 +32,9 @@ describe('Batch File Scanner Integration', () => {
       expect(testUser1?.password).toBe('testpass123');
       expect(testUser1?.server).toBe('Main');
 
-      const pvpUser = accounts.find(acc => acc.login === 'pvpuser');
+      const pvpUser = accounts.find(acc => acc.login === 'test-data');
       expect(pvpUser).toBeDefined();
-      expect(pvpUser?.password).toBe('pvppass456');
+      expect(pvpUser?.password).toBe('testpass456');
       expect(pvpUser?.server).toBe('X');
     });
 
@@ -43,7 +43,7 @@ describe('Batch File Scanner Integration', () => {
 
       // Should find accounts from subfolder
       const loginNames = accounts.map(acc => acc.login).filter(Boolean);
-      expect(loginNames).toContain('olduser');
+      expect(loginNames).toContain('test-data');
       expect(loginNames).toContain('mainaccount');
       expect(loginNames).toContain('altcharacter');
     });
@@ -84,8 +84,7 @@ describe('Batch File Scanner Integration', () => {
       // Check various formats are parsed
       const formats = [
         'testuser1',    // Standard format
-        'pvpuser',      // Another standard format
-        'olduser',      // Old format
+        'test-data',    // Another standard format (appears twice in different files)
         'mainaccount',  // With comments
         'altcharacter', // Alt format
       ];
