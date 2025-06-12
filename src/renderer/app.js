@@ -127,11 +127,9 @@ class PerfectWorldAccountManager {
         <td class="login-cell" title="Click to copy">${this.escapeHtml(account.login)}</td>
         <td class="password-cell" title="Click to copy">••••••••</td>
         <td>${this.escapeHtml(account.server)}</td>
-        <td>${this.escapeHtml(account.character || '')}</td>
-        <td>${this.escapeHtml(account.class || '')}</td>
-        <td>${account.level || ''}</td>
-        <td>${this.escapeHtml(account.proxy || '')}</td>
-        <td>${account.forceID || ''}</td>
+        <td>${this.escapeHtml(account.characterName || '')}</td>
+        <td>${this.escapeHtml(account.description || '')}</td>
+        <td>${this.escapeHtml(account.owner || '')}</td>
         <td>
           <span class="status-indicator ${isRunning ? 'running' : 'stopped'}">
             ${isRunning ? 'Running' : 'Stopped'}
@@ -281,19 +279,23 @@ class PerfectWorldAccountManager {
             </div>
             <div class="form-group">
               <label>Server *</label>
-              <input type="text" name="server" value="${account?.server || ''}" required>
+              <select name="server" required>
+                <option value="">Select server...</option>
+                <option value="Main" ${account?.server === 'Main' ? 'selected' : ''}>Main</option>
+                <option value="X" ${account?.server === 'X' ? 'selected' : ''}>X</option>
+              </select>
             </div>
             <div class="form-group">
-              <label>Character</label>
-              <input type="text" name="character" value="${account?.character || ''}">
+              <label>Character Name</label>
+              <input type="text" name="characterName" value="${account?.characterName || ''}" placeholder="Supports Cyrillic characters">
             </div>
             <div class="form-group">
-              <label>Class</label>
-              <input type="text" name="class" value="${account?.class || ''}">
+              <label>Description</label>
+              <input type="text" name="description" value="${account?.description || ''}" placeholder="Supports Cyrillic characters">
             </div>
             <div class="form-group">
-              <label>Level</label>
-              <input type="number" name="level" min="1" max="105" value="${account?.level || ''}">
+              <label>Owner</label>
+              <input type="text" name="owner" value="${account?.owner || ''}" placeholder="Supports Cyrillic characters">
             </div>
           </form>
         </div>
@@ -327,14 +329,14 @@ class PerfectWorldAccountManager {
         
         if (account?.id) result.id = account.id;
         
-        const character = formData.get('character');
-        if (character) result.character = character;
+        const characterName = formData.get('characterName');
+        if (characterName) result.characterName = characterName;
         
-        const cls = formData.get('class');
-        if (cls) result.class = cls;
+        const description = formData.get('description');
+        if (description) result.description = description;
         
-        const level = formData.get('level');
-        if (level) result.level = parseInt(level, 10);
+        const owner = formData.get('owner');
+        if (owner) result.owner = owner;
         
         cleanup();
         resolve(result);

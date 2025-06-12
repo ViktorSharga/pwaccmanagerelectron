@@ -54,11 +54,11 @@ describe('AccountStorage', () => {
       const savedAccount = await accountStorage.saveAccount(accountData);
       
       // Update account
-      const updatedData = { ...savedAccount, character: 'UpdatedCharacter' };
+      const updatedData = { ...savedAccount, characterName: 'UpdatedCharacter' };
       const updatedAccount = await accountStorage.saveAccount(updatedData);
       
       expect(updatedAccount.id).toBe(savedAccount.id);
-      expect(updatedAccount.character).toBe('UpdatedCharacter');
+      expect(updatedAccount.characterName).toBe('UpdatedCharacter');
     });
 
     it('should reject account with missing required fields', async () => {
@@ -83,10 +83,10 @@ describe('AccountStorage', () => {
       delete (accountData as any).id; // Remove ID to create new account
       const savedAccount = await accountStorage.saveAccount(accountData);
       
-      const updatedAccount = { ...savedAccount, character: 'Updated' };
+      const updatedAccount = { ...savedAccount, characterName: 'Updated' };
       const result = await accountStorage.saveAccount(updatedAccount);
       
-      expect(result.character).toBe('Updated');
+      expect(result.characterName).toBe('Updated');
     });
 
     it('should reject updating account with duplicate login', async () => {
@@ -111,7 +111,7 @@ describe('AccountStorage', () => {
       
       const savedAccount = await accountStorage.saveAccount(account);
       expect(savedAccount.login).toBe(account.login);
-      expect(savedAccount.character).toBe(account.character);
+      expect(savedAccount.characterName).toBe(account.characterName);
     });
   });
 

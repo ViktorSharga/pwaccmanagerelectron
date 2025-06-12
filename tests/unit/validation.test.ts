@@ -11,19 +11,19 @@ describe('Account Validation', () => {
     });
 
     it('should fail validation for missing login', () => {
-      const account = { password: 'test123', server: 'Main' };
+      const account = { password: 'test123', server: 'Main' as const };
       const errors = validateAccount(account);
       expect(errors).toContain('Login is required');
     });
 
     it('should fail validation for empty login', () => {
-      const account = { login: '   ', password: 'test123', server: 'Main' };
+      const account = { login: '   ', password: 'test123', server: 'Main' as const };
       const errors = validateAccount(account);
       expect(errors).toContain('Login is required');
     });
 
     it('should fail validation for missing password', () => {
-      const account = { login: 'testuser', server: 'Main' };
+      const account = { login: 'testuser', server: 'Main' as const };
       const errors = validateAccount(account);
       expect(errors).toContain('Password is required');
     });
@@ -31,51 +31,57 @@ describe('Account Validation', () => {
     it('should fail validation for missing server', () => {
       const account = { login: 'testuser', password: 'test123' };
       const errors = validateAccount(account);
-      expect(errors).toContain('Server is required');
+      expect(errors).toContain('Server must be Main or X');
     });
 
-    it('should fail validation for invalid level', () => {
+    it('should fail validation for invalid server', () => {
+      const account = { login: 'testuser', password: 'test123', server: 'InvalidServer' as any };
+      const errors = validateAccount(account);
+      expect(errors).toContain('Server must be Main or X');
+    });
+
+    it('should pass validation for Cyrillic characters in characterName', () => {
       const account = { 
         login: 'testuser', 
         password: 'test123', 
-        server: 'Main',
-        level: 0 
+        server: 'Main' as const,
+        characterName: 'Тестовый персонаж'
       };
       const errors = validateAccount(account);
-      expect(errors).toContain('Level must be between 1 and 105');
+      expect(errors).toHaveLength(0);
     });
 
-    it('should fail validation for level too high', () => {
+    it('should pass validation for Cyrillic characters in description', () => {
       const account = { 
         login: 'testuser', 
         password: 'test123', 
-        server: 'Main',
-        level: 106 
+        server: 'X' as const,
+        description: 'Описание персонажа с русскими символами'
       };
       const errors = validateAccount(account);
-      expect(errors).toContain('Level must be between 1 and 105');
+      expect(errors).toHaveLength(0);
     });
 
-    it('should fail validation for invalid force ID', () => {
+    it('should fail validation for invalid characters in characterName', () => {
       const account = { 
         login: 'testuser', 
         password: 'test123', 
-        server: 'Main',
-        forceID: -1 
+        server: 'Main' as const,
+        characterName: 'Test<script>alert("xss")</script>'
       };
       const errors = validateAccount(account);
-      expect(errors).toContain('Force ID must be between 0 and 255');
+      expect(errors).toContain('Invalid characters in Character Name');
     });
 
-    it('should fail validation for force ID too high', () => {
+    it('should fail validation for invalid characters in owner', () => {
       const account = { 
         login: 'testuser', 
         password: 'test123', 
-        server: 'Main',
-        forceID: 256 
+        server: 'Main' as const,
+        owner: 'User@#$%^&*()'
       };
       const errors = validateAccount(account);
-      expect(errors).toContain('Force ID must be between 0 and 255');
+      expect(errors).toContain('Invalid characters in Owner');
     });
 
     it('should handle account with special characters', () => {
@@ -85,14 +91,18 @@ describe('Account Validation', () => {
     });
 
     it('should return multiple errors for multiple issues', () => {
-      const account = { level: 0, forceID: -1 };
+      const account = { 
+        characterName: 'Invalid<script>',
+        description: 'Also invalid<>',
+        owner: 'Bad@#$%'
+      };
       const errors = validateAccount(account);
-      expect(errors.length).toBeGreaterThan(3);
+      expect(errors.length).toBeGreaterThanOrEqual(5);
       expect(errors).toContain('Login is required');
       expect(errors).toContain('Password is required');
-      expect(errors).toContain('Server is required');
-      expect(errors).toContain('Level must be between 1 and 105');
-      expect(errors).toContain('Force ID must be between 0 and 255');
+      expect(errors).toContain('Server must be Main or X');
+      expect(errors).toContain('Invalid characters in Character Name');
+      expect(errors).toContain('Invalid characters in Description');
     });
   });
 
@@ -133,7 +143,7 @@ describe('Account Validation', () => {
       const serialized = serializeAccount(account);
       const parsed = JSON.parse(serialized);
       expect(parsed.login).toBe(account.login);
-      expect(parsed.character).toBe(account.character);
+      expect(parsed.characterName).toBe(account.characterName);
     });
   });
 

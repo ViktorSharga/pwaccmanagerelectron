@@ -5,19 +5,17 @@ import { generateAccountId } from '../../src/shared/utils/validation';
 export class TestDataGenerator {
   static generateMockAccount(index: number = 1): Account {
     const owners = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve'];
-    const servers = ['Main', 'PvP', 'RP', 'Test'];
-    const classes = ['Warrior', 'Mage', 'Archer', 'Cleric', 'Assassin'];
+    const servers: ('Main' | 'X')[] = ['Main', 'X'];
+    const descriptions = ['Main character', 'Alt account', 'PvP character', 'Testing account', 'Farming character'];
 
     return {
       id: generateAccountId(),
       login: `testuser${index}`,
       password: `pass${index}@123`,
       server: servers[index % servers.length],
-      character: `Character${index}`,
-      class: classes[index % classes.length],
-      level: Math.floor(Math.random() * 105) + 1,
-      proxy: index % 3 === 0 ? `proxy${index}.example.com:8080` : undefined,
-      forceID: index % 4 === 0 ? Math.floor(Math.random() * 256) : undefined,
+      characterName: `Character${index}`,
+      description: descriptions[index % descriptions.length],
+      owner: owners[index % owners.length],
       isRunning: false,
     };
   }
@@ -28,13 +26,13 @@ export class TestDataGenerator {
 
   static generateMockBatchFile(account: Account, encoding: 'utf8' | 'cp1251' = 'utf8'): Buffer {
     const content = `@echo off
-rem Owner: TestUser
-rem Description: ${account.character || 'Test account'}
+rem Owner: ${account.owner || 'TestUser'}
+rem Description: ${account.description || 'Test account'}
 rem Server: ${account.server}
 rem Created: ${new Date().toISOString()}
 
 cd /d "%~dp0element"
-start elementclient.exe startbypatcher game:cpw user:${account.login} pwd:${account.password} role:${account.character || ''} server:${account.server}
+start elementclient.exe startbypatcher game:cpw user:${account.login} pwd:${account.password} role:${account.characterName || ''} server:${account.server}
 exit
 `;
 
@@ -48,7 +46,8 @@ exit
     return `@echo off
 rem Owner: TestUser
 rem Description: Valid batch file
-start elementclient.exe startbypatcher user:${login} pwd:${password} role:TestChar
+rem Server: Main
+start elementclient.exe startbypatcher user:${login} pwd:${password} role:TestChar server:Main
 `;
   }
 
@@ -64,7 +63,8 @@ pause
     return `@echo off
 rem Owner: Tëst Üsér 测试用户
 rem Description: File with unicode characters
-start elementclient.exe startbypatcher user:测试账号 pwd:测试密码123 role:测试角色
+rem Server: X
+start elementclient.exe startbypatcher user:测试账号 pwd:测试密码123 role:测试角色 server:X
 `;
   }
 
@@ -84,7 +84,7 @@ invalid_command_here
 
   static generateMockAccountsCSV(count: number): string {
     const accounts = this.generateMockAccounts(count);
-    const headers = ['login', 'password', 'server', 'character', 'class', 'level', 'proxy', 'forceID'];
+    const headers = ['login', 'password', 'server', 'characterName', 'description', 'owner'];
     
     const csvLines = [
       headers.join(','),
@@ -134,12 +134,10 @@ test3,pass3,server3,extra,fields,here`;
       id: generateAccountId(),
       login: 'test@user+123',
       password: 'p@ssw0rd!#$%^&*()',
-      server: 'Test-Server_01',
-      character: 'Tëst Chäracter 测试',
-      class: 'Mage/Healer',
-      level: 50,
-      proxy: 'proxy.test.com:8080',
-      forceID: 255,
+      server: 'Main',
+      characterName: 'Tëst Chäracter 测试',
+      description: 'Тестовый персонаж с русскими символами',
+      owner: 'Владелец Аккаунта',
       isRunning: false,
     };
   }

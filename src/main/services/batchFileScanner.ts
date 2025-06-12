@@ -58,7 +58,13 @@ export class BatchFileScanner {
       
       const serverMatch = content.match(/server:([^\s]+)/i);
       if (serverMatch) {
-        account.server = serverMatch[1];
+        const serverValue = serverMatch[1];
+        if (serverValue === 'Main' || serverValue === 'X') {
+          account.server = serverValue;
+        } else {
+          // Default to Main for unknown servers
+          account.server = 'Main';
+        }
       }
       
       const accountComment = content.match(/REM\s+Account:\s*(.+)/i);
@@ -68,7 +74,41 @@ export class BatchFileScanner {
       
       const serverComment = content.match(/REM\s+Server:\s*(.+)/i);
       if (serverComment && !account.server) {
-        account.server = serverComment[1].trim();
+        const serverValue = serverComment[1].trim();
+        if (serverValue === 'Main' || serverValue === 'X') {
+          account.server = serverValue;
+        } else {
+          // Default to Main for unknown servers
+          account.server = 'Main';
+        }
+      }
+      
+      // Parse description comment
+      const descriptionComment = content.match(/REM\s+Description:\s*(.+)/i);
+      if (descriptionComment) {
+        account.description = descriptionComment[1].trim();
+      }
+      
+      // Parse owner comment
+      const ownerComment = content.match(/REM\s+Owner:\s*(.+)/i);
+      if (ownerComment) {
+        account.owner = ownerComment[1].trim();
+      }
+      
+      // Parse character name from role parameter or comment
+      const roleMatch = content.match(/role:([^\s]*)/i);
+      if (roleMatch && roleMatch[1]) {
+        account.characterName = roleMatch[1];
+      }
+      
+      const characterComment = content.match(/REM\s+Character:\s*(.+)/i);
+      if (characterComment && !account.characterName) {
+        account.characterName = characterComment[1].trim();
+      }
+      
+      // Ensure server is set (default to Main if not specified)
+      if (!account.server) {
+        account.server = 'Main';
       }
       
       return account;

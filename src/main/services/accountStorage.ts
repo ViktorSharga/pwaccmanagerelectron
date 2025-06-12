@@ -99,7 +99,7 @@ export class AccountStorage {
     if (format === 'json') {
       await fs.writeFile(filePath, JSON.stringify(accounts, null, 2));
     } else {
-      const headers = ['login', 'password', 'server', 'character', 'class', 'level', 'proxy', 'forceID'];
+      const headers = ['login', 'password', 'server', 'characterName', 'description', 'owner'];
       const csv = [
         headers.join(','),
         ...accounts.map(account => 
@@ -133,9 +133,7 @@ export class AccountStorage {
         headers.forEach((header, index) => {
           let value = values[index]?.trim().replace(/^"|"$/g, '') || '';
           
-          if (header === 'level' || header === 'forceID') {
-            account[header] = value ? parseInt(value, 10) : undefined;
-          } else if (value) {
+          if (value) {
             account[header] = value;
           }
         });

@@ -35,7 +35,7 @@ describe('Batch File Scanner Integration', () => {
       const pvpUser = accounts.find(acc => acc.login === 'pvpuser');
       expect(pvpUser).toBeDefined();
       expect(pvpUser?.password).toBe('pvppass456');
-      expect(pvpUser?.server).toBe('PvP');
+      expect(pvpUser?.server).toBe('X');
     });
 
     it('should handle batch files in subdirectories', async () => {
@@ -121,8 +121,7 @@ describe('Batch File Scanner Integration', () => {
         .filter((server, index, array) => array.indexOf(server) === index);
 
       expect(serversFound).toContain('Main');
-      expect(serversFound).toContain('PvP');
-      expect(serversFound).toContain('RP');
+      expect(serversFound).toContain('X');
     });
 
     it('should extract additional metadata when available', async () => {
@@ -130,7 +129,7 @@ describe('Batch File Scanner Integration', () => {
 
       // Check for accounts with additional metadata
       const accountsWithMetadata = accounts.filter(acc => 
-        acc.character || acc.class || acc.server
+        acc.characterName || acc.description || acc.server
       );
 
       expect(accountsWithMetadata.length).toBeGreaterThan(0);

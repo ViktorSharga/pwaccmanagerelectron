@@ -2,13 +2,14 @@ export interface Account {
   id: string;
   login: string;
   password: string;
-  server: string;
-  character?: string;
-  class?: string;
-  level?: number;
-  proxy?: string;
-  forceID?: number;
+  server: 'Main' | 'X';
+  characterName?: string;
+  description?: string;
+  owner?: string;
   isRunning?: boolean;
+  
+  // Runtime only (not persisted):
+  sourceBatchFile?: string;
 }
 
 export interface Settings {
