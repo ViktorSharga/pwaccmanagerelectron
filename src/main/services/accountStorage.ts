@@ -118,7 +118,11 @@ export class AccountStorage {
     }
   }
 
-  async importAccounts(filePath: string, format: 'json' | 'csv'): Promise<Account[]> {
+  async parseImportFile(filePath: string, format: 'json' | 'csv'): Promise<{
+    accounts: Partial<Account>[];
+    existing: string[];
+    new: string[];
+  }> {
     const content = await fs.readFile(filePath, 'utf-8');
     let importedAccounts: Partial<Account>[] = [];
 
@@ -126,7 +130,7 @@ export class AccountStorage {
       importedAccounts = JSON.parse(content);
     } else {
       const lines = content.split('\n').filter(line => line.trim());
-      if (lines.length < 2) return [];
+      if (lines.length < 2) return { accounts: [], existing: [], new: [] };
 
       const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
       
@@ -146,20 +150,44 @@ export class AccountStorage {
       }
     }
 
+    const existing: string[] = [];
+    const newAccounts: string[] = [];
+
+    for (const account of importedAccounts) {
+      if (account.login) {
+        const existingAccount = this.accounts.find(a => a.login === account.login);
+        if (existingAccount) {
+          existing.push(account.login);
+        } else {
+          newAccounts.push(account.login);
+        }
+      }
+    }
+
+    return {
+      accounts: importedAccounts,
+      existing,
+      new: newAccounts
+    };
+  }
+
+  async importSelectedAccounts(selectedAccounts: Partial<Account>[]): Promise<Account[]> {
     const savedAccounts: Account[] = [];
     
-    for (const account of importedAccounts) {
+    for (const account of selectedAccounts) {
       try {
-        const existingAccount = this.accounts.find(a => a.login === account.login);
-        if (!existingAccount) {
-          const saved = await this.saveAccount(account);
-          savedAccounts.push(saved);
-        }
+        const saved = await this.saveAccount(account);
+        savedAccounts.push(saved);
       } catch (error) {
         console.error(`Failed to import account ${account.login}:`, error);
       }
     }
 
     return savedAccounts;
+  }
+
+  async importAccounts(filePath: string, format: 'json' | 'csv'): Promise<Account[]> {
+    const importData = await this.parseImportFile(filePath, format);
+    return await this.importSelectedAccounts(importData.accounts);
   }
 }

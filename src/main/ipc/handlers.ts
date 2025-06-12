@@ -173,6 +173,23 @@ export function setupIpcHandlers() {
     return { success: false };
   });
 
+  ipcMain.handle('export-selected-accounts', async (_, accounts: Account[], format: 'json' | 'csv') => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export Selected Accounts',
+      defaultPath: `accounts.${format}`,
+      filters: format === 'json' 
+        ? [{ name: 'JSON Files', extensions: ['json'] }]
+        : [{ name: 'CSV Files', extensions: ['csv'] }],
+    });
+
+    if (!result.canceled && result.filePath) {
+      await accountStorage.exportAccounts(accounts, result.filePath, format);
+      return { success: true };
+    }
+    
+    return { success: false };
+  });
+
   ipcMain.handle('import-accounts', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Import Accounts',
@@ -187,11 +204,16 @@ export function setupIpcHandlers() {
     if (!result.canceled && result.filePaths.length > 0) {
       const filePath = result.filePaths[0];
       const format = path.extname(filePath).toLowerCase().substring(1) as 'json' | 'csv';
-      const accounts = await accountStorage.importAccounts(filePath, format);
-      return { success: true, count: accounts.length };
+      const importData = await accountStorage.parseImportFile(filePath, format);
+      return { success: true, importData };
     }
     
-    return { success: false, count: 0 };
+    return { success: false, importData: null };
+  });
+
+  ipcMain.handle('import-selected-accounts', async (_, selectedAccounts: Partial<Account>[]) => {
+    const savedAccounts = await accountStorage.importSelectedAccounts(selectedAccounts);
+    return { success: true, count: savedAccounts.length };
   });
 
   ipcMain.handle('open-webview', async (_, accountId: string) => {

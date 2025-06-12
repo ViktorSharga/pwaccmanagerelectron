@@ -484,59 +484,42 @@ class PerfectWorldAccountManager {
       ? `Are you sure you want to delete account "${selectedAccounts[0].login}"?`
       : `Are you sure you want to delete ${selectedAccounts.length} accounts?`;
     
-    // Check if any accounts have associated batch files
-    if (accountsWithBatchFiles.length > 0) {
-      const batchFileMessage = accountsWithBatchFiles.length === 1
-        ? `\n\nThis account has an associated batch file. Do you also want to delete the batch file "${accountsWithBatchFiles[0].sourceBatchFile}"?`
-        : `\n\n${accountsWithBatchFiles.length} of these accounts have associated batch files. Do you also want to delete the batch files?`;
-      
-      const deleteBatchFiles = await this.showDeleteWithBatchFilesDialog(message + batchFileMessage, accountsWithBatchFiles);
-      if (deleteBatchFiles === null) return; // User cancelled
-      
-      // Delete accounts and optionally batch files
-      for (const account of selectedAccounts) {
-        try {
-          await window.electronAPI.invoke('delete-account', account.id);
-          
-          // Delete batch file if requested and it exists
-          if (deleteBatchFiles && account.sourceBatchFile) {
-            try {
-              await window.electronAPI.invoke('delete-batch-file', account.sourceBatchFile);
-            } catch (batchError) {
-              console.warn('Failed to delete batch file:', batchError);
-            }
+    // Show delete confirmation with optional batch file checkbox
+    const deleteResult = await this.showDeleteConfirmationDialog(message, accountsWithBatchFiles);
+    if (!deleteResult) return; // User cancelled
+    
+    const { confirmed, deleteBatchFiles } = deleteResult;
+    if (!confirmed) return;
+    
+    // Delete accounts and optionally batch files
+    for (const account of selectedAccounts) {
+      try {
+        await window.electronAPI.invoke('delete-account', account.id);
+        
+        // Delete batch file if requested and it exists
+        if (deleteBatchFiles && account.sourceBatchFile) {
+          try {
+            await window.electronAPI.invoke('delete-batch-file', account.sourceBatchFile);
+          } catch (batchError) {
+            console.warn('Failed to delete batch file:', batchError);
           }
-          
-          const index = this.accounts.findIndex(a => a.id === account.id);
-          if (index !== -1) {
-            this.accounts.splice(index, 1);
-          }
-        } catch (error) {
-          console.error('Failed to delete account:', error);
         }
-      }
-    } else {
-      // Normal delete without batch files
-      const confirmed = await this.showConfirmDialog('Delete Accounts', message);
-      if (!confirmed) return;
-      
-      for (const account of selectedAccounts) {
-        try {
-          await window.electronAPI.invoke('delete-account', account.id);
-          const index = this.accounts.findIndex(a => a.id === account.id);
-          if (index !== -1) {
-            this.accounts.splice(index, 1);
-          }
-        } catch (error) {
-          console.error('Failed to delete account:', error);
+        
+        const index = this.accounts.findIndex(a => a.id === account.id);
+        if (index !== -1) {
+          this.accounts.splice(index, 1);
         }
+      } catch (error) {
+        console.error('Failed to delete account:', error);
       }
     }
     
     this.selectedAccountIds.clear();
     this.renderAccountTable();
     this.updateUI();
-    this.showToast('Accounts deleted successfully');
+    
+    const batchMessage = deleteBatchFiles && accountsWithBatchFiles.length > 0 ? ' and associated batch files' : '';
+    this.showToast(`Successfully deleted ${selectedAccounts.length} account(s)${batchMessage}.`);
   }
 
   async launchSelectedAccounts() {
@@ -685,12 +668,24 @@ class PerfectWorldAccountManager {
   }
 
   async importAccounts() {
-    // Simple implementation for now
     try {
       const result = await window.electronAPI.invoke('import-accounts');
-      if (result.success && result.count > 0) {
-        await this.loadAccounts();
-        this.showToast(`Successfully imported ${result.count} accounts.`);
+      if (result.success && result.importData) {
+        const importData = result.importData;
+        
+        if (importData.accounts.length === 0) {
+          this.showToast('No accounts found in the selected file.');
+          return;
+        }
+
+        const selectedAccounts = await this.showImportSelectionDialog(importData);
+        if (selectedAccounts && selectedAccounts.length > 0) {
+          const importResult = await window.electronAPI.invoke('import-selected-accounts', selectedAccounts);
+          if (importResult.success) {
+            await this.loadAccounts();
+            this.showToast(`Successfully imported ${importResult.count} accounts.`);
+          }
+        }
       } else {
         this.showToast('No accounts were imported.');
       }
@@ -701,9 +696,17 @@ class PerfectWorldAccountManager {
 
   async exportAccounts() {
     try {
-      const result = await window.electronAPI.invoke('export-accounts', 'json');
-      if (result.success) {
-        this.showToast('Accounts exported successfully.');
+      if (this.accounts.length === 0) {
+        this.showToast('No accounts to export.');
+        return;
+      }
+
+      const selectedAccounts = await this.showExportSelectionDialog(this.accounts);
+      if (selectedAccounts && selectedAccounts.length > 0) {
+        const result = await window.electronAPI.invoke('export-selected-accounts', selectedAccounts, 'json');
+        if (result.success) {
+          this.showToast(`Successfully exported ${selectedAccounts.length} accounts.`);
+        }
       }
     } catch (error) {
       this.showErrorDialog('Export Failed', error.message);
@@ -831,41 +834,48 @@ class PerfectWorldAccountManager {
     });
   }
 
-  async showDeleteWithBatchFilesDialog(message, accountsWithBatchFiles) {
+  async showDeleteConfirmationDialog(message, accountsWithBatchFiles) {
     return new Promise((resolve) => {
       const overlay = this.createOverlay();
       const dialog = this.createDialog();
+      
+      const hasBatchFiles = accountsWithBatchFiles.length > 0;
       
       dialog.innerHTML = `
         <div class="dialog-header">
           <h2>Delete Accounts</h2>
         </div>
         <div class="dialog-content">
-          <p style="white-space: pre-line;">${message}</p>
-          <div style="margin: 16px 0;">
-            <strong>Batch files to be affected:</strong>
-            <ul style="margin: 8px 0; padding-left: 20px; max-height: 150px; overflow-y: auto;">
-              ${accountsWithBatchFiles.map(account => `
-                <li style="margin: 4px 0; font-size: 12px; color: #666;">
-                  ${this.escapeHtml(account.sourceBatchFile.split('/').pop())} (${this.escapeHtml(account.login)})
-                </li>
-              `).join('')}
-            </ul>
-          </div>
+          <p>${message}</p>
+          ${hasBatchFiles ? `
+            <div style="margin: 16px 0;">
+              <strong>Associated batch files:</strong>
+              <ul style="margin: 8px 0; padding-left: 20px; max-height: 150px; overflow-y: auto; font-size: 12px; color: #666;">
+                ${accountsWithBatchFiles.map(account => `
+                  <li style="margin: 4px 0;">
+                    ${this.escapeHtml(account.sourceBatchFile.split('/').pop())} (${this.escapeHtml(account.login)})
+                  </li>
+                `).join('')}
+              </ul>
+              <label style="display: flex; align-items: center; margin-top: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px;">
+                <input type="checkbox" id="delete-batch-files" style="margin-right: 8px;">
+                <span>Also delete associated batch files</span>
+              </label>
+            </div>
+          ` : ''}
         </div>
         <div class="dialog-footer">
           <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
-          <button type="button" class="btn btn-secondary" id="delete-accounts-only-btn">Delete Accounts Only</button>
-          <button type="button" class="btn btn-primary" id="delete-all-btn">Delete Accounts + Batch Files</button>
+          <button type="button" class="btn btn-primary" id="confirm-btn">Delete</button>
         </div>
       `;
       
       overlay.appendChild(dialog);
       document.body.appendChild(overlay);
       
-      const deleteAllBtn = dialog.querySelector('#delete-all-btn');
-      const deleteAccountsOnlyBtn = dialog.querySelector('#delete-accounts-only-btn');
+      const confirmBtn = dialog.querySelector('#confirm-btn');
       const cancelBtn = dialog.querySelector('#cancel-btn');
+      const deleteBatchFilesCheckbox = dialog.querySelector('#delete-batch-files');
       
       const cleanup = () => overlay.remove();
       
@@ -874,14 +884,10 @@ class PerfectWorldAccountManager {
         resolve(null);
       };
       
-      deleteAccountsOnlyBtn.onclick = () => {
+      confirmBtn.onclick = () => {
+        const deleteBatchFiles = deleteBatchFilesCheckbox ? deleteBatchFilesCheckbox.checked : false;
         cleanup();
-        resolve(false);
-      };
-      
-      deleteAllBtn.onclick = () => {
-        cleanup();
-        resolve(true);
+        resolve({ confirmed: true, deleteBatchFiles });
       };
       
       overlay.onclick = (e) => {
@@ -923,6 +929,201 @@ class PerfectWorldAccountManager {
     setTimeout(() => {
       toast.remove();
     }, 3000);
+  }
+
+  async showImportSelectionDialog(importData) {
+    return new Promise((resolve) => {
+      const overlay = this.createOverlay();
+      const dialog = this.createDialog();
+      
+      dialog.innerHTML = `
+        <div class="dialog-header">
+          <h2>Import Accounts</h2>
+        </div>
+        <div class="dialog-content">
+          <p>Found ${importData.accounts.length} account(s) in the file.</p>
+          ${importData.existing.length > 0 ? `
+            <div style="margin: 12px 0; padding: 8px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+              <strong>⚠️ Existing accounts:</strong> ${importData.existing.join(', ')}
+              <br><small>These will be skipped during import.</small>
+            </div>
+          ` : ''}
+          <div style="margin: 16px 0;">
+            <label style="display: flex; align-items: center; margin-bottom: 8px;">
+              <input type="checkbox" id="select-all-import" checked style="margin-right: 8px;">
+              <strong>Select All</strong>
+            </label>
+            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+              ${importData.accounts.map((account, index) => {
+                const isExisting = importData.existing.includes(account.login);
+                return `
+                  <label style="display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; ${isExisting ? 'background: #f8f8f8; opacity: 0.6;' : ''}" 
+                         ${isExisting ? 'title="Account already exists"' : ''}>
+                    <input type="checkbox" class="account-checkbox" data-index="${index}" 
+                           ${!isExisting ? 'checked' : 'disabled'} style="margin-right: 8px;">
+                    <div style="flex: 1;">
+                      <strong>${this.escapeHtml(account.login || 'Unknown')}</strong>
+                      <div style="font-size: 12px; color: #666;">
+                        Server: ${this.escapeHtml(account.server || 'Main')} | 
+                        Character: ${this.escapeHtml(account.characterName || 'N/A')}
+                      </div>
+                    </div>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-primary" id="import-btn">Import Selected</button>
+        </div>
+      `;
+      
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      
+      const selectAllCheckbox = dialog.querySelector('#select-all-import');
+      const accountCheckboxes = dialog.querySelectorAll('.account-checkbox:not([disabled])');
+      const importBtn = dialog.querySelector('#import-btn');
+      const cancelBtn = dialog.querySelector('#cancel-btn');
+      
+      const updateImportButton = () => {
+        const selected = dialog.querySelectorAll('.account-checkbox:checked:not([disabled])');
+        importBtn.textContent = `Import Selected (${selected.length})`;
+        importBtn.disabled = selected.length === 0;
+      };
+      
+      selectAllCheckbox.addEventListener('change', () => {
+        accountCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+        updateImportButton();
+      });
+      
+      accountCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateImportButton);
+      });
+      
+      updateImportButton();
+      
+      const cleanup = () => overlay.remove();
+      
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(null);
+      };
+      
+      importBtn.onclick = () => {
+        const selectedIndices = Array.from(dialog.querySelectorAll('.account-checkbox:checked:not([disabled])'))
+          .map(cb => parseInt(cb.dataset.index));
+        const selectedAccounts = selectedIndices.map(i => importData.accounts[i]);
+        cleanup();
+        resolve(selectedAccounts);
+      };
+      
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(null);
+        }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
+      };
+    });
+  }
+
+  async showExportSelectionDialog(accounts) {
+    return new Promise((resolve) => {
+      const overlay = this.createOverlay();
+      const dialog = this.createDialog();
+      
+      dialog.innerHTML = `
+        <div class="dialog-header">
+          <h2>Export Accounts</h2>
+        </div>
+        <div class="dialog-content">
+          <p>Select accounts to export:</p>
+          <div style="margin: 16px 0;">
+            <label style="display: flex; align-items: center; margin-bottom: 8px;">
+              <input type="checkbox" id="select-all-export" checked style="margin-right: 8px;">
+              <strong>Select All</strong>
+            </label>
+            <div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+              ${accounts.map((account, index) => `
+                <label style="display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee;">
+                  <input type="checkbox" class="account-checkbox" data-index="${index}" 
+                         checked style="margin-right: 8px;">
+                  <div style="flex: 1;">
+                    <strong>${this.escapeHtml(account.login)}</strong>
+                    <div style="font-size: 12px; color: #666;">
+                      Server: ${this.escapeHtml(account.server)} | 
+                      Character: ${this.escapeHtml(account.characterName || 'N/A')} |
+                      Status: ${account.isRunning ? '<span style="color: green;">Running</span>' : '<span style="color: #666;">Stopped</span>'}
+                    </div>
+                  </div>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-primary" id="export-btn">Export Selected</button>
+        </div>
+      `;
+      
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      
+      const selectAllCheckbox = dialog.querySelector('#select-all-export');
+      const accountCheckboxes = dialog.querySelectorAll('.account-checkbox');
+      const exportBtn = dialog.querySelector('#export-btn');
+      const cancelBtn = dialog.querySelector('#cancel-btn');
+      
+      const updateExportButton = () => {
+        const selected = dialog.querySelectorAll('.account-checkbox:checked');
+        exportBtn.textContent = `Export Selected (${selected.length})`;
+        exportBtn.disabled = selected.length === 0;
+      };
+      
+      selectAllCheckbox.addEventListener('change', () => {
+        accountCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+        updateExportButton();
+      });
+      
+      accountCheckboxes.forEach(cb => {
+        cb.addEventListener('change', updateExportButton);
+      });
+      
+      updateExportButton();
+      
+      const cleanup = () => overlay.remove();
+      
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(null);
+      };
+      
+      exportBtn.onclick = () => {
+        const selectedIndices = Array.from(dialog.querySelectorAll('.account-checkbox:checked'))
+          .map(cb => parseInt(cb.dataset.index));
+        const selectedAccounts = selectedIndices.map(i => accounts[i]);
+        cleanup();
+        resolve(selectedAccounts);
+      };
+      
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(null);
+        }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
+      };
+    });
   }
 
   createOverlay() {
