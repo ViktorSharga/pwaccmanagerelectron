@@ -241,7 +241,7 @@ export class GameProcessManager extends EventEmitter {
       `game:cpw`,
       `user:${account.login}`,
       `pwd:${account.password}`,
-      `role:`,
+      `role:${account.characterName || ''}`,
     ];
 
     if (account.server) {
@@ -253,6 +253,7 @@ export class GameProcessManager extends EventEmitter {
 
     let content = `@echo off\n`;
     content += `REM Account: ${account.login}\n`;
+    content += `REM Character: ${account.characterName || 'Not specified'}\n`;
     content += `REM Server: ${account.server || 'Default'}\n`;
     content += `REM Game executable: ${gameExePath}\n`;
     content += `REM Generated: ${new Date().toISOString()}\n\n`;
