@@ -349,8 +349,8 @@ export class WebViewManager {
         // Remove all event listeners first to prevent memory leaks
         if (webView.webContents && !webView.webContents.isDestroyed()) {
           webView.webContents.removeAllListeners();
-          // Force destroy the webContents to free memory
-          webView.webContents.destroy();
+          // Close the webContents to free memory
+          webView.webContents.close();
         }
         
         // Remove the BrowserView from the main window
