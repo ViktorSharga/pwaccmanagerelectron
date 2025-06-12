@@ -221,7 +221,7 @@ export class AccountStorage {
     };
   }
 
-  async importSelectedAccounts(selectedAccounts: Partial<Account>[]): Promise<{
+  async importSelectedAccounts(selectedAccounts: Partial<Account>[], createBatchFiles: boolean = false, gamePath?: string): Promise<{
     savedAccounts: Account[];
     errors: { login: string; error: string }[];
   }> {
@@ -232,6 +232,27 @@ export class AccountStorage {
       try {
         // Remove id and runtime-only fields to ensure accounts are treated as new
         const { id, isRunning, sourceBatchFile, ...accountToImport } = account;
+        
+        // Create batch file if requested and game path is provided
+        if (createBatchFiles && gamePath && account.login && account.password) {
+          try {
+            const { GameProcessManager } = await import('../services/gameProcessManager');
+            const gameProcessManager = new GameProcessManager();
+            const batchFilePath = await gameProcessManager.createPermanentBatchFile({
+              ...accountToImport as Account,
+              id: 'temp',
+              isRunning: false
+            }, gamePath);
+            
+            // Store the batch file path
+            (accountToImport as any).originalBatchFilePath = batchFilePath;
+            console.log(`Created batch file for ${account.login} at ${batchFilePath}`);
+          } catch (batchError) {
+            console.error(`Failed to create batch file for ${account.login}:`, batchError);
+            // Continue with import even if batch file creation fails
+          }
+        }
+        
         const saved = await this.saveAccount(accountToImport);
         savedAccounts.push(saved);
       } catch (error: any) {

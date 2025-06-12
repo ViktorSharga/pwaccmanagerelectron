@@ -216,7 +216,16 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('import-selected-accounts', async (_, selectedAccounts: Partial<Account>[]) => {
-    const result = await accountStorage.importSelectedAccounts(selectedAccounts);
+    // Get current settings to access game path
+    const settings = await settingsManager.getSettings();
+    const createBatchFiles = true; // Always create batch files for imported accounts
+    
+    const result = await accountStorage.importSelectedAccounts(
+      selectedAccounts, 
+      createBatchFiles,
+      settings.gamePath
+    );
+    
     return { 
       success: true, 
       count: result.savedAccounts.length, 

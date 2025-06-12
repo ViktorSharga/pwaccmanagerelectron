@@ -31,7 +31,7 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
-  private async findElementClientPath(folderPath: string): Promise<string | null> {
+  private async findElementClientPath(folderPath: string): Promise<string> {
     try {
       // Check both root folder and element subfolder
       const possiblePaths = [
@@ -42,9 +42,13 @@ export class GameProcessManager extends EventEmitter {
       for (const checkPath of possiblePaths) {
         try {
           const files = await fs.readdir(checkPath);
-          const executableName = files.find(file => 
-            file.toLowerCase() === 'elementclient.exe'
-          );
+          const executableName = files.find(file => {
+            const lowerFile = file.toLowerCase();
+            return lowerFile === 'elementclient.exe' ||
+                   lowerFile === 'element client.exe' ||
+                   lowerFile === 'element_client.exe' ||
+                   (lowerFile.includes('elementclient') && lowerFile.endsWith('.exe'));
+          });
           
           if (executableName) {
             const fullPath = path.join(checkPath, executableName);
@@ -59,18 +63,15 @@ export class GameProcessManager extends EventEmitter {
         }
       }
       
-      return null;
+      throw new Error('elementclient.exe not found');
     } catch (error) {
       console.error('Error finding elementclient.exe:', error);
-      return null;
+      throw new Error('elementclient.exe not found');
     }
   }
 
   async launchGame(account: Account, gamePath: string): Promise<void> {
     const gameExePath = await this.findElementClientPath(gamePath);
-    if (!gameExePath) {
-      throw new Error('elementclient.exe not found');
-    }
     
     const batContent = this.generateBatchFile(account, gameExePath);
     const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
@@ -124,7 +125,7 @@ export class GameProcessManager extends EventEmitter {
     content += `REM Generated: ${new Date().toISOString()}\n\n`;
     
     content += `cd /d "${gameDir}"\n`;
-    content += `start "${exeName}" ${params.join(' ')}\n`;
+    content += `start "" "${exeName}" ${params.join(' ')}\n`;
     content += `exit\n`;
 
     return content;
@@ -156,6 +157,34 @@ export class GameProcessManager extends EventEmitter {
 
   isAccountRunning(accountId: string): boolean {
     return this.processes.has(accountId);
+  }
+
+  async createPermanentBatchFile(account: Account, gamePath: string | null | undefined): Promise<string> {
+    if (!gamePath) {
+      throw new Error('Game path is required to create batch file');
+    }
+    
+    try {
+      const gameExePath = await this.findElementClientPath(gamePath);
+      const gameDir = path.dirname(gameExePath);
+      
+      // Generate batch file content
+      const batchContent = this.generateBatchFile(account, gameExePath);
+      
+      // Create filename based on account login (sanitize for filesystem)
+      const sanitizedLogin = account.login.replace(/[^a-zA-Z0-9]/g, '_');
+      const batchFileName = `pw_${sanitizedLogin}.bat`;
+      const batchFilePath = path.join(gameDir, batchFileName);
+      
+      // Write batch file
+      await fs.writeFile(batchFilePath, batchContent, 'utf-8');
+      
+      console.log(`Created permanent batch file: ${batchFilePath}`);
+      return batchFilePath;
+    } catch (error) {
+      console.error('Failed to create permanent batch file:', error);
+      throw error;
+    }
   }
 
   destroy(): void {
