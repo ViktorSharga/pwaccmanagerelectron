@@ -40,6 +40,7 @@ class PerfectWorldAccountManager {
     document.getElementById('btn-edit')?.addEventListener('click', () => this.showEditAccountDialog());
     document.getElementById('btn-delete')?.addEventListener('click', () => this.deleteSelectedAccounts());
     document.getElementById('btn-launch')?.addEventListener('click', () => this.launchSelectedAccounts());
+    document.getElementById('btn-close-selected')?.addEventListener('click', () => this.closeSelectedAccounts());
     document.getElementById('btn-launch-all')?.addEventListener('click', () => this.launchAllAccounts());
     document.getElementById('btn-close-all')?.addEventListener('click', () => this.closeAllAccounts());
     document.getElementById('btn-scan-folder')?.addEventListener('click', () => this.scanFolder());
@@ -85,10 +86,12 @@ class PerfectWorldAccountManager {
   updateToolbarButtons() {
     const hasSelection = this.selectedAccountIds.size > 0;
     const hasOneSelection = this.selectedAccountIds.size === 1;
+    const hasRunningSelection = this.getSelectedRunningAccounts().length > 0;
     
     document.getElementById('btn-edit')?.toggleAttribute('disabled', !hasOneSelection);
     document.getElementById('btn-delete')?.toggleAttribute('disabled', !hasSelection);
     document.getElementById('btn-launch')?.toggleAttribute('disabled', !hasSelection);
+    document.getElementById('btn-close-selected')?.toggleAttribute('disabled', !hasRunningSelection);
   }
 
   updateStatusBar() {
@@ -103,6 +106,12 @@ class PerfectWorldAccountManager {
     if (runningCountEl) {
       runningCountEl.textContent = `${runningCount} running`;
     }
+  }
+
+  getSelectedRunningAccounts() {
+    return this.accounts.filter(account => 
+      this.selectedAccountIds.has(account.id) && account.isRunning
+    );
   }
 
   renderAccountTable() {
@@ -567,6 +576,25 @@ class PerfectWorldAccountManager {
       this.showToast(`Closing ${runningAccounts.length} game(s)...`);
     } catch (error) {
       this.showErrorDialog('Failed to close games', error.message);
+    }
+  }
+
+  async closeSelectedAccounts() {
+    const selectedRunningAccounts = this.getSelectedRunningAccounts();
+    if (selectedRunningAccounts.length === 0) return;
+    
+    const message = selectedRunningAccounts.length === 1
+      ? `Are you sure you want to close the running game for account "${selectedRunningAccounts[0].login}"?`
+      : `Are you sure you want to close ${selectedRunningAccounts.length} selected running games?`;
+    
+    const confirmed = await this.showConfirmDialog('Close Selected Games', message);
+    if (!confirmed) return;
+    
+    try {
+      await window.electronAPI.invoke('close-game', selectedRunningAccounts.map(a => a.id));
+      this.showToast(`Closing ${selectedRunningAccounts.length} selected game(s)...`);
+    } catch (error) {
+      this.showErrorDialog('Failed to close selected games', error.message);
     }
   }
 
