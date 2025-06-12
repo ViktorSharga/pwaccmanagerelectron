@@ -2,13 +2,20 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import * as path from 'path';
 import { setupIpcHandlers } from './ipc/handlers';
 import { createApplicationMenu } from './menu';
+import { SettingsManager } from './services/settingsManager';
 
 let mainWindow: BrowserWindow | null = null;
+let settingsManager: SettingsManager;
 
 function createWindow() {
+  settingsManager = new SettingsManager();
+  const savedBounds = settingsManager.getWindowBounds();
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: savedBounds?.width || 1200,
+    height: savedBounds?.height || 800,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
@@ -25,6 +32,13 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+  });
+
+  mainWindow.on('close', () => {
+    if (mainWindow) {
+      const bounds = mainWindow.getBounds();
+      settingsManager.saveWindowBounds(bounds);
+    }
   });
 
   mainWindow.on('closed', () => {

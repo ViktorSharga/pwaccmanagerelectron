@@ -36,10 +36,31 @@ class App {
 
   private async loadAccounts(): Promise<void> {
     try {
+      this.setLoading(true);
       this.accounts = await window.electronAPI.invoke('get-accounts');
       this.accountTable.setAccounts(this.accounts);
     } catch (error) {
       console.error('Failed to load accounts:', error);
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  private setLoading(loading: boolean): void {
+    const buttons = document.querySelectorAll('.toolbar-btn');
+    buttons.forEach(btn => {
+      if (loading) {
+        btn.setAttribute('disabled', 'true');
+      } else {
+        btn.removeAttribute('disabled');
+      }
+    });
+    
+    if (loading) {
+      document.body.style.cursor = 'wait';
+    } else {
+      document.body.style.cursor = 'default';
+      this.updateToolbarButtons();
     }
   }
 
