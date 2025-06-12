@@ -243,9 +243,68 @@ export class GameProcessManager extends EventEmitter {
     const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
     const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
     
-    // Write batch file with CP1251 encoding
+    // Write batch file with proper encoding
     const iconv = await import('iconv-lite');
-    const encodedContent = iconv.encode(batContent, 'cp1251');
+    console.log(`🔤 Encoding batch file...`);
+    
+    // Test if CP1251 can properly encode the character name
+    let canUseCP1251 = true;
+    let useUTF8 = false;
+    
+    if (account.characterName) {
+      try {
+        const testEncoded = iconv.encode(account.characterName, 'cp1251');
+        const testDecoded = iconv.decode(testEncoded, 'cp1251');
+        canUseCP1251 = testDecoded === account.characterName;
+        console.log(`🔤 CP1251 compatibility test for "${account.characterName}": ${canUseCP1251}`);
+        
+        if (!canUseCP1251) {
+          console.log(`🔤 Character "${account.characterName}" cannot be properly encoded in CP1251`);
+          console.log(`🔤 Encoded as: "${testDecoded}"`);
+          useUTF8 = true;
+        }
+      } catch (error) {
+        console.log(`🔤 CP1251 encoding failed for "${account.characterName}":`, error);
+        useUTF8 = true;
+      }
+    }
+    
+    let finalContent;
+    let encodedContent;
+    
+    if (useUTF8) {
+      // Use UTF-8 with BOM and change codepage command
+      console.log(`🔤 Using UTF-8 encoding due to CP1251 compatibility issues`);
+      finalContent = batContent.replace('chcp 1251 >nul 2>&1', 'chcp 65001 >nul 2>&1');
+      const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+      const contentBuffer = Buffer.from(finalContent, 'utf8');
+      encodedContent = Buffer.concat([utf8Bom, contentBuffer]);
+    } else {
+      // Use CP1251 as planned
+      console.log(`🔤 Using CP1251 encoding`);
+      finalContent = batContent;
+      encodedContent = iconv.encode(finalContent, 'cp1251');
+    }
+    
+    // Debug: Test final encoding
+    if (account.characterName) {
+      let decodedTest;
+      if (useUTF8) {
+        // Remove BOM and decode as UTF-8
+        const contentWithoutBom = encodedContent.slice(3);
+        decodedTest = contentWithoutBom.toString('utf8');
+      } else {
+        decodedTest = iconv.decode(encodedContent, 'cp1251');
+      }
+      
+      const roleMatch = decodedTest.match(/role:([^\s]*)/);
+      const decodedCharName = roleMatch ? roleMatch[1] : 'NOT_FOUND';
+      console.log(`🔤 Final encoding test (${useUTF8 ? 'UTF-8' : 'CP1251'}):`);
+      console.log(`  Original: "${account.characterName}"`);
+      console.log(`  After encoding roundtrip: "${decodedCharName}"`);
+      console.log(`  Match: ${account.characterName === decodedCharName}`);
+    }
+    
     await fs.writeFile(batPath, encodedContent);
 
     const gameDir = path.dirname(gameExePath);
@@ -352,12 +411,21 @@ export class GameProcessManager extends EventEmitter {
   }
 
   private generateBatchFile(account: Account, gameExePath: string): string {
+    // Debug character name encoding before processing
+    const characterName = account.characterName || '';
+    console.log(`🔤 Processing character name: "${characterName}"`);
+    if (characterName) {
+      console.log(`🔤 Character name bytes (UTF-8):`, Buffer.from(characterName, 'utf8'));
+      console.log(`🔤 Character name length:`, characterName.length);
+      console.log(`🔤 Character codes:`, [...characterName].map(c => `${c}(${c.charCodeAt(0)})`));
+    }
+
     const params = [
       'startbypatcher',
       `game:cpw`,
       `user:${account.login}`,
       `pwd:${account.password}`,
-      `role:${account.characterName || ''}`,
+      `role:${characterName}`,
     ];
 
     if (account.server) {
@@ -370,13 +438,17 @@ export class GameProcessManager extends EventEmitter {
     let content = `@echo off\r\n`;
     content += `chcp 1251 >nul 2>&1\r\n`;
     content += `REM Account: ${account.login}\r\n`;
-    content += `REM Character: ${account.characterName || 'Not specified'}\r\n`;
+    content += `REM Character: ${characterName || 'Not specified'}\r\n`;
     content += `REM Server: ${account.server || 'Default'}\r\n`;
     content += `\r\n`;
     
     content += `cd /d "${gameDir}"\r\n`;
     content += `start "" "${exeName}" ${params.join(' ')}\r\n`;
     content += `exit\r\n`;
+
+    // Debug the complete batch content before encoding
+    console.log(`🔤 Batch content before CP1251 encoding:`);
+    console.log(content);
 
     return content;
   }
@@ -506,9 +578,68 @@ export class GameProcessManager extends EventEmitter {
       const batchFileName = `pw_${sanitizedLogin}.bat`;
       const batchFilePath = path.join(gameDir, batchFileName);
       
-      // Write batch file with CP1251 encoding
+      // Write batch file with proper encoding
       const iconv = await import('iconv-lite');
-      const encodedContent = iconv.encode(batchContent, 'cp1251');
+      console.log(`🔤 Encoding permanent batch file...`);
+      
+      // Test if CP1251 can properly encode the character name
+      let canUseCP1251 = true;
+      let useUTF8 = false;
+      
+      if (account.characterName) {
+        try {
+          const testEncoded = iconv.encode(account.characterName, 'cp1251');
+          const testDecoded = iconv.decode(testEncoded, 'cp1251');
+          canUseCP1251 = testDecoded === account.characterName;
+          console.log(`🔤 Permanent file CP1251 compatibility test for "${account.characterName}": ${canUseCP1251}`);
+          
+          if (!canUseCP1251) {
+            console.log(`🔤 Permanent file character "${account.characterName}" cannot be properly encoded in CP1251`);
+            console.log(`🔤 Permanent file encoded as: "${testDecoded}"`);
+            useUTF8 = true;
+          }
+        } catch (error) {
+          console.log(`🔤 Permanent file CP1251 encoding failed for "${account.characterName}":`, error);
+          useUTF8 = true;
+        }
+      }
+      
+      let finalContent;
+      let encodedContent;
+      
+      if (useUTF8) {
+        // Use UTF-8 with BOM and change codepage command
+        console.log(`🔤 Permanent file using UTF-8 encoding due to CP1251 compatibility issues`);
+        finalContent = batchContent.replace('chcp 1251 >nul 2>&1', 'chcp 65001 >nul 2>&1');
+        const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+        const contentBuffer = Buffer.from(finalContent, 'utf8');
+        encodedContent = Buffer.concat([utf8Bom, contentBuffer]);
+      } else {
+        // Use CP1251 as planned
+        console.log(`🔤 Permanent file using CP1251 encoding`);
+        finalContent = batchContent;
+        encodedContent = iconv.encode(finalContent, 'cp1251');
+      }
+      
+      // Debug: Test final encoding for permanent file
+      if (account.characterName) {
+        let decodedTest;
+        if (useUTF8) {
+          // Remove BOM and decode as UTF-8
+          const contentWithoutBom = encodedContent.slice(3);
+          decodedTest = contentWithoutBom.toString('utf8');
+        } else {
+          decodedTest = iconv.decode(encodedContent, 'cp1251');
+        }
+        
+        const roleMatch = decodedTest.match(/role:([^\s]*)/);
+        const decodedCharName = roleMatch ? roleMatch[1] : 'NOT_FOUND';
+        console.log(`🔤 Permanent file final encoding test (${useUTF8 ? 'UTF-8' : 'CP1251'}):`);
+        console.log(`  Original: "${account.characterName}"`);
+        console.log(`  After encoding roundtrip: "${decodedCharName}"`);
+        console.log(`  Match: ${account.characterName === decodedCharName}`);
+      }
+      
       await fs.writeFile(batchFilePath, encodedContent);
       
       console.log(`Created permanent batch file: ${batchFilePath}`);

@@ -132,6 +132,15 @@ export function setupIpcHandlers() {
     const accounts = await accountStorage.getAccounts();
     const accountsToLaunch = accounts.filter(acc => accountIds.includes(acc.id));
     
+    // Debug character names from storage
+    accountsToLaunch.forEach(account => {
+      if (account.characterName) {
+        console.log(`🔤 Account from storage - Login: ${account.login}, Character: "${account.characterName}"`);
+        console.log(`🔤 Character name type: ${typeof account.characterName}`);
+        console.log(`🔤 Character name bytes:`, Buffer.from(account.characterName, 'utf8'));
+      }
+    });
+    
     // Validate delay is within acceptable range
     const delay = Math.max(10, Math.min(60, settings.launchDelay || 15));
     
