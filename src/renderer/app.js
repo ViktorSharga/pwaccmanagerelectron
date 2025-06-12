@@ -444,9 +444,10 @@ class PerfectWorldAccountManager {
                 <option value="high" ${this.settings?.processMonitoringMode === 'high' ? 'selected' : ''}>High (Most Responsive)</option>
               </select>
               <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                Low: Reduces CPU usage but slower process detection<br>
-                Normal: Balanced performance and responsiveness<br>
-                High: Fastest detection but higher CPU usage
+                Low: 5 min crash detection (minimal CPU usage)<br>
+                Normal: 2 min crash detection (balanced)<br>
+                High: 1 min crash detection (most responsive)<br>
+                <strong>Note:</strong> No constant monitoring - only checks when processes are running
               </small>
             </div>
           </form>

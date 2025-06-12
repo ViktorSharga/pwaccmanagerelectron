@@ -22,7 +22,8 @@ export class GameProcessManager extends EventEmitter {
     super();
     this.settingsManager = settingsManager;
     this.adjustPerformanceSettings();
-    this.startProcessMonitoring();
+    // NO MORE CONSTANT MONITORING! Only check when needed
+    console.log('GameProcessManager initialized - monitoring disabled for performance');
   }
 
   private adjustPerformanceSettings(): void {
@@ -34,33 +35,38 @@ export class GameProcessManager extends EventEmitter {
       
       switch (mode) {
         case 'high':
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 3000; // More frequent for responsiveness
-          this.FULL_SCAN_INTERVAL = 15000;
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 60000; // Much less frequent
           break;
         case 'low':
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 15000; // Less frequent for performance
-          this.FULL_SCAN_INTERVAL = 60000;
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 300000; // 5 minutes - very rare
           break;
         default: // normal
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 5000;
-          this.FULL_SCAN_INTERVAL = 30000;
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 120000; // 2 minutes
           break;
       }
       
-      console.log(`Process monitoring mode: ${mode}, intervals: ${this.LIGHTWEIGHT_CHECK_INTERVAL}ms/${this.FULL_SCAN_INTERVAL}ms`);
+      console.log(`Process monitoring mode: ${mode}, check interval: ${this.LIGHTWEIGHT_CHECK_INTERVAL}ms (only for crash detection)`);
     } catch (error) {
       console.warn('Could not load performance settings, using defaults');
     }
   }
 
-  private startProcessMonitoring(): void {
-    // Initial scan for existing processes
-    this.scanExistingProcesses();
-    
-    // Start lightweight periodic monitoring
-    this.processCheckInterval = setInterval(() => {
-      this.checkProcessesEfficiently();
-    }, this.LIGHTWEIGHT_CHECK_INTERVAL);
+  private startOptionalCrashDetection(): void {
+    // Only start crash detection if we have running processes
+    if (this.processes.size > 0 && !this.processCheckInterval) {
+      console.log('Starting optional crash detection...');
+      this.processCheckInterval = setInterval(() => {
+        this.checkForCrashedProcesses();
+      }, this.LIGHTWEIGHT_CHECK_INTERVAL);
+    }
+  }
+
+  private stopCrashDetection(): void {
+    if (this.processCheckInterval) {
+      clearInterval(this.processCheckInterval);
+      this.processCheckInterval = null;
+      console.log('Stopped crash detection - no processes to monitor');
+    }
   }
 
   private async scanExistingProcesses(): Promise<void> {
@@ -114,30 +120,37 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
-  private async checkProcessesEfficiently(): Promise<void> {
+  private async checkForCrashedProcesses(): Promise<void> {
     try {
-      // ULTRA-EFFICIENT: Only check specific PIDs we're tracking
-      // No need to scan all ElementClient processes - we only care about ones we launched
+      // Only run if we have processes to check
+      if (this.processes.size === 0) {
+        this.stopCrashDetection();
+        return;
+      }
+      
+      console.log(`Checking ${this.processes.size} tracked processes for crashes...`);
       
       for (const [accountId, processInfo] of this.processes.entries()) {
         const stillRunning = await this.checkIfProcessExists(processInfo.pid);
         if (!stillRunning) {
-          console.log(`Process ${processInfo.pid} for account ${processInfo.login} is no longer running`);
+          console.log(`Process ${processInfo.pid} for account ${processInfo.login} crashed or was closed`);
           this.processes.delete(accountId);
           this.emit('status-update', accountId, false);
         }
       }
       
-      // No need for window title updates - they're just for display and not critical
-      // This eliminates ALL WMI/PowerShell usage during normal operation
+      // Stop monitoring if no more processes
+      if (this.processes.size === 0) {
+        this.stopCrashDetection();
+      }
     } catch (error) {
-      console.error('Error in efficient process check:', error);
+      console.error('Error checking for crashed processes:', error);
     }
   }
 
   private async checkProcesses(): Promise<void> {
-    // Legacy method - now just calls the efficient version
-    await this.checkProcessesEfficiently();
+    // Legacy method - now just calls crash detection
+    await this.checkForCrashedProcesses();
   }
 
   private async findElementClientPath(folderPath: string): Promise<string> {
@@ -189,8 +202,19 @@ export class GameProcessManager extends EventEmitter {
     const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
     await fs.mkdir(tempDir, { recursive: true });
     
-    const batPath = path.join(tempDir, `${account.login}_${Date.now()}.bat`);
-    await fs.writeFile(batPath, batContent, { encoding: 'utf8' });
+    // Sanitize login for filename
+    const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
+    const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
+    
+    // Write batch file with CP1251 encoding for Cyrillic support
+    try {
+      const iconv = await import('iconv-lite');
+      const encodedContent = iconv.encode(batContent, 'cp1251');
+      await fs.writeFile(batPath, encodedContent);
+    } catch (error) {
+      console.warn('iconv-lite not available, using UTF-8 encoding:', error);
+      await fs.writeFile(batPath, batContent, { encoding: 'utf8' });
+    }
 
     const gameDir = path.dirname(gameExePath);
     const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
@@ -238,6 +262,9 @@ export class GameProcessManager extends EventEmitter {
           
           console.log(`Associated ElementClient.exe process ${targetPid} with account ${account.login}`);
           this.emit('status-update', account.id, true);
+          
+          // Start crash detection now that we have a process to monitor
+          this.startOptionalCrashDetection();
           return;
         }
         
@@ -276,16 +303,25 @@ export class GameProcessManager extends EventEmitter {
     const gameDir = path.dirname(gameExePath);
     const exeName = path.basename(gameExePath);
 
-    let content = `@echo off\n`;
-    content += `REM Account: ${account.login}\n`;
-    content += `REM Character: ${account.characterName || 'Not specified'}\n`;
-    content += `REM Server: ${account.server || 'Default'}\n`;
-    content += `REM Game executable: ${gameExePath}\n`;
-    content += `REM Generated: ${new Date().toISOString()}\n\n`;
+    // Proper batch file format with CP1251 for Cyrillic support
+    let content = `@echo off\r\n`;
+    content += `chcp 1251 >nul 2>&1\r\n`;  // Set code page for Cyrillic characters, suppress output
+    content += `REM Perfect World Account Manager - Generated Batch File\r\n`;
+    content += `REM Account: ${account.login}\r\n`;
+    content += `REM Character: ${account.characterName || 'Not specified'}\r\n`;
+    content += `REM Server: ${account.server || 'Default'}\r\n`;
+    content += `REM Game executable: ${gameExePath}\r\n`;
+    content += `REM Generated: ${new Date().toISOString()}\r\n`;
+    content += `\r\n`;
     
-    content += `cd /d "${gameDir}"\n`;
-    content += `start "" "${exeName}" ${params.join(' ')}\n`;
-    content += `exit\n`;
+    content += `cd /d "${gameDir}"\r\n`;
+    content += `if exist "${exeName}" (\r\n`;
+    content += `    start "" "${exeName}" ${params.join(' ')}\r\n`;
+    content += `) else (\r\n`;
+    content += `    echo ERROR: ${exeName} not found in ${gameDir}\r\n`;
+    content += `    pause\r\n`;
+    content += `)\r\n`;
+    content += `exit\r\n`;
 
     return content;
   }
@@ -313,6 +349,11 @@ export class GameProcessManager extends EventEmitter {
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
       
+      // Stop crash detection if no more processes
+      if (this.processes.size === 0) {
+        this.stopCrashDetection();
+      }
+      
       console.log(`Successfully closed process ${processInfo.pid} for account ${processInfo.login}`);
     } catch (error) {
       console.error(`Failed to close game process ${processInfo.pid}:`, error);
@@ -320,6 +361,11 @@ export class GameProcessManager extends EventEmitter {
       // Even if killing failed, remove from tracking and update status
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
+      
+      // Stop crash detection if no more processes
+      if (this.processes.size === 0) {
+        this.stopCrashDetection();
+      }
     }
   }
 
@@ -354,12 +400,20 @@ export class GameProcessManager extends EventEmitter {
       const batchContent = this.generateBatchFile(account, gameExePath);
       
       // Create filename based on account login (sanitize for filesystem)
-      const sanitizedLogin = account.login.replace(/[^a-zA-Z0-9]/g, '_');
+      // Remove or replace characters that are invalid in Windows filenames
+      const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
       const batchFileName = `pw_${sanitizedLogin}.bat`;
       const batchFilePath = path.join(gameDir, batchFileName);
       
-      // Write batch file
-      await fs.writeFile(batchFilePath, batchContent, 'utf-8');
+      // Write batch file with CP1251 encoding for Cyrillic support
+      try {
+        const iconv = await import('iconv-lite');
+        const encodedContent = iconv.encode(batchContent, 'cp1251');
+        await fs.writeFile(batchFilePath, encodedContent);
+      } catch (error) {
+        console.warn('iconv-lite not available, using UTF-8 encoding:', error);
+        await fs.writeFile(batchFilePath, batchContent, 'utf-8');
+      }
       
       console.log(`Created permanent batch file: ${batchFilePath}`);
       return batchFilePath;
@@ -370,17 +424,14 @@ export class GameProcessManager extends EventEmitter {
   }
 
   updatePerformanceSettings(): void {
-    // Stop current monitoring
-    if (this.processCheckInterval) {
-      clearInterval(this.processCheckInterval);
-      this.processCheckInterval = null;
-    }
-    
-    // Adjust settings and restart monitoring
+    // Just update the intervals - monitoring is only active when we have processes
     this.adjustPerformanceSettings();
-    this.processCheckInterval = setInterval(() => {
-      this.checkProcessesEfficiently();
-    }, this.LIGHTWEIGHT_CHECK_INTERVAL);
+    
+    // Restart crash detection with new intervals if we have running processes
+    if (this.processes.size > 0) {
+      this.stopCrashDetection();
+      this.startOptionalCrashDetection();
+    }
     
     console.log('Process monitoring intervals updated');
   }
