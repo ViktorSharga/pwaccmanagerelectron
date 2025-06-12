@@ -40,11 +40,12 @@ export class WebViewManager {
       mainWindow.setBrowserView(webView);
 
       const bounds = mainWindow.getBounds();
+      // Leave space at the top for a control bar
       webView.setBounds({
         x: 0,
-        y: 80,
+        y: 40,
         width: bounds.width,
-        height: bounds.height - 120,
+        height: bounds.height - 80,
       });
 
       webView.setAutoResize({
@@ -61,12 +62,14 @@ export class WebViewManager {
 
       webView.webContents.on('did-finish-load', () => {
         console.log('WebView finished loading, attempting to auto-fill credentials...');
+        this.addControlBar(webView, account);
         this.autoFillCredentials(webView, account);
       });
 
       webView.webContents.on('dom-ready', () => {
         console.log('WebView DOM ready, attempting to auto-fill credentials...');
-        // Add a delay before auto-fill to ensure page is fully rendered
+        // Add control bar first, then auto-fill
+        this.addControlBar(webView, account);
         setTimeout(() => {
           this.autoFillCredentials(webView, account);
         }, 500);
@@ -74,6 +77,19 @@ export class WebViewManager {
 
       webView.webContents.on('before-input-event', (event, input) => {
         if (input.key === 'Escape') {
+          this.closeWebView(account.id);
+        }
+        // Add Ctrl+W to close WebView (common browser shortcut)
+        if (input.key === 'w' && (input.control || input.meta)) {
+          event.preventDefault();
+          this.closeWebView(account.id);
+        }
+      });
+
+      // Listen for console messages to handle close requests
+      webView.webContents.on('console-message', (event, level, message) => {
+        if (message.includes(`WEBVIEW_CLOSE_REQUESTED_${account.id}`)) {
+          console.log('Closing WebView via control bar button');
           this.closeWebView(account.id);
         }
       });
@@ -84,6 +100,109 @@ export class WebViewManager {
     } catch (error) {
       console.error('Error opening WebView:', error);
       throw error;
+    }
+  }
+
+  private async addControlBar(webView: BrowserView, account: Account): Promise<void> {
+    try {
+      const controlBarScript = `
+        (function() {
+          // Remove existing control bar if present
+          const existingBar = document.getElementById('account-manager-control-bar');
+          if (existingBar) {
+            existingBar.remove();
+          }
+          
+          // Create control bar
+          const controlBar = document.createElement('div');
+          controlBar.id = 'account-manager-control-bar';
+          controlBar.style.cssText = \`
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: linear-gradient(135deg, #1976d2, #1565c0);
+            color: white;
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            user-select: none;
+          \`;
+          
+          // Account info
+          const accountInfo = document.createElement('div');
+          accountInfo.style.cssText = \`
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          \`;
+          accountInfo.innerHTML = \`
+            <span>🌐</span>
+            <span>Account: <strong>${account.login.replace(/'/g, "&apos;")}</strong></span>
+          \`;
+          
+          // Controls
+          const controls = document.createElement('div');
+          controls.style.cssText = \`
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          \`;
+          
+          // Close button
+          const closeBtn = document.createElement('button');
+          closeBtn.innerHTML = '✕ Close';
+          closeBtn.style.cssText = \`
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+          \`;
+          closeBtn.onmouseover = function() { this.style.background = 'rgba(255,255,255,0.3)'; };
+          closeBtn.onmouseout = function() { this.style.background = 'rgba(255,255,255,0.2)'; };
+          closeBtn.onclick = function() {
+            // Send message to close WebView
+            console.log('Close button clicked');
+            // Use console.log with a specific marker that we can listen for
+            console.log('WEBVIEW_CLOSE_REQUESTED_${account.id}');
+          };
+          
+          // Help text
+          const helpText = document.createElement('span');
+          helpText.textContent = 'Press ESC or Ctrl+W to close';
+          helpText.style.cssText = \`
+            font-size: 11px;
+            opacity: 0.8;
+          \`;
+          
+          controls.appendChild(helpText);
+          controls.appendChild(closeBtn);
+          controlBar.appendChild(accountInfo);
+          controlBar.appendChild(controls);
+          
+          // Add to page
+          document.body.appendChild(controlBar);
+          
+          // Adjust body padding to account for control bar
+          document.body.style.paddingTop = '40px';
+          
+          console.log('Control bar added successfully');
+        })();
+      `;
+
+      await webView.webContents.executeJavaScript(controlBarScript);
+    } catch (error) {
+      console.error('Failed to add control bar:', error);
     }
   }
 
@@ -230,9 +349,9 @@ export class WebViewManager {
     for (const webView of this.webViews.values()) {
       webView.setBounds({
         x: 0,
-        y: 80,
+        y: 40,
         width: bounds.width,
-        height: bounds.height - 120,
+        height: bounds.height - 80,
       });
     }
   }
