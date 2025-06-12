@@ -111,6 +111,9 @@ export class BatchFileScanner {
         account.server = 'Main';
       }
       
+      // Store the source batch file path for reference
+      account.sourceBatchFile = filePath;
+      
       return account;
     } catch (error) {
       console.error(`Error parsing batch file ${filePath}:`, error);

@@ -14,9 +14,7 @@
     "baseUrl": "./src",
     "paths": {
       "@main/*": ["main/*"],
-      "@renderer/*": ["renderer/*"],
-      "@shared/*": ["shared/*"],
-      "@types/*": ["types/*"]
+      "@shared/*": ["shared/*"]
     },
     "sourceMap": true,
     "declaration": true,

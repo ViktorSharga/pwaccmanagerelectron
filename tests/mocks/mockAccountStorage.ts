@@ -64,7 +64,7 @@ export class MockAccountStorage {
       // Simulate file write
       return Promise.resolve();
     } else {
-      const headers = ['login', 'password', 'server', 'character', 'class', 'level', 'proxy', 'forceID'];
+      const headers = ['login', 'password', 'server', 'characterName', 'description', 'owner'];
       const csv = [
         headers.join(','),
         ...accounts.map(account => 

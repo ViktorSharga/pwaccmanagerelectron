@@ -42,6 +42,7 @@ class PerfectWorldAccountManager {
     document.getElementById('btn-launch')?.addEventListener('click', () => this.launchSelectedAccounts());
     document.getElementById('btn-launch-all')?.addEventListener('click', () => this.launchAllAccounts());
     document.getElementById('btn-close-all')?.addEventListener('click', () => this.closeAllAccounts());
+    document.getElementById('btn-scan-folder')?.addEventListener('click', () => this.scanFolder());
     document.getElementById('btn-import')?.addEventListener('click', () => this.importAccounts());
     document.getElementById('btn-export')?.addEventListener('click', () => this.exportAccounts());
     document.getElementById('btn-settings')?.addEventListener('click', () => this.showSettingsDialog());
@@ -569,6 +570,38 @@ class PerfectWorldAccountManager {
     }
   }
 
+  async scanFolder() {
+    try {
+      const result = await window.electronAPI.invoke('scan-batch-files');
+      if (result.success && result.accounts.length > 0) {
+        // Show preview dialog with found accounts
+        const confirmed = await this.showScanPreviewDialog(result.accounts);
+        if (confirmed) {
+          let importedCount = 0;
+          for (const account of result.accounts) {
+            try {
+              const savedAccount = await window.electronAPI.invoke('save-account', account);
+              this.accounts.push(savedAccount);
+              importedCount++;
+            } catch (error) {
+              console.error('Failed to import account:', error);
+            }
+          }
+          
+          if (importedCount > 0) {
+            this.renderAccountTable();
+            this.updateUI();
+            this.showToast(`Successfully imported ${importedCount} account(s) from batch files.`);
+          }
+        }
+      } else {
+        this.showToast('No valid batch files found in the selected folder.');
+      }
+    } catch (error) {
+      this.showErrorDialog('Scan Failed', error.message);
+    }
+  }
+
   async openWebViewForAccount(account) {
     try {
       const result = await window.electronAPI.invoke('open-webview', account.id);
@@ -638,6 +671,78 @@ class PerfectWorldAccountManager {
       };
       
       confirmBtn.onclick = () => {
+        cleanup();
+        resolve(true);
+      };
+      
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
+        }
+      };
+      
+      dialog.onclick = (e) => {
+        e.stopPropagation();
+      };
+    });
+  }
+
+  async showScanPreviewDialog(accounts) {
+    return new Promise((resolve) => {
+      const overlay = this.createOverlay();
+      const dialog = this.createDialog();
+      
+      dialog.innerHTML = `
+        <div class="dialog-header">
+          <h2>Found ${accounts.length} Account(s)</h2>
+        </div>
+        <div class="dialog-content">
+          <p>The following accounts were found in batch files:</p>
+          <div style="max-height: 300px; overflow-y: auto; margin: 16px 0;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f5f5f5;">
+                  <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Login</th>
+                  <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Server</th>
+                  <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Character</th>
+                  <th style="padding: 8px; text-align: left; border-bottom: 1px solid #ddd;">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${accounts.map(account => `
+                  <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${this.escapeHtml(account.login || 'Unknown')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${this.escapeHtml(account.server || 'Main')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${this.escapeHtml(account.characterName || '')}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; font-size: 12px; color: #666;">${this.escapeHtml(account.sourceBatchFile ? account.sourceBatchFile.split('/').pop() : 'Unknown')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <p><strong>Do you want to import these accounts?</strong></p>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-primary" id="import-btn">Import All</button>
+        </div>
+      `;
+      
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      
+      const importBtn = dialog.querySelector('#import-btn');
+      const cancelBtn = dialog.querySelector('#cancel-btn');
+      
+      const cleanup = () => overlay.remove();
+      
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve(false);
+      };
+      
+      importBtn.onclick = () => {
         cleanup();
         resolve(true);
       };
