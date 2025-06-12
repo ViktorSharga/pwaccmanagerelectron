@@ -21,10 +21,10 @@ export class GameProcessManager extends EventEmitter {
     // Initial scan for existing processes
     this.scanExistingProcesses();
     
-    // Start periodic monitoring
+    // Start periodic monitoring with longer interval to reduce system load
     this.processCheckInterval = setInterval(() => {
       this.checkProcesses();
-    }, 3000);
+    }, 10000); // Increased from 3s to 10s to reduce system strain
   }
 
   private async scanExistingProcesses(): Promise<void> {
@@ -179,8 +179,9 @@ export class GameProcessManager extends EventEmitter {
   }
 
   private async findNewElementClientProcess(account: Account, pidsBeforeLaunch: Set<number>): Promise<void> {
-    const maxAttempts = 10; // Try for up to 30 seconds (10 attempts * 3 seconds)
+    const maxAttempts = 6; // Reduced from 10 to 6 attempts
     let attempts = 0;
+    let timeoutId: NodeJS.Timeout | null = null;
     
     const findProcess = async (): Promise<void> => {
       attempts++;
@@ -218,7 +219,7 @@ export class GameProcessManager extends EventEmitter {
         
         // If no new process found and we haven't reached max attempts, try again
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 3000);
+          timeoutId = setTimeout(findProcess, 5000); // Increased delay from 3s to 5s
         } else {
           console.warn(`Could not find ElementClient.exe process for account ${account.login} after ${maxAttempts} attempts`);
           // Still keep status as running in case the process started but we couldn't detect it
@@ -226,13 +227,13 @@ export class GameProcessManager extends EventEmitter {
       } catch (error) {
         console.error('Error finding new ElementClient process:', error);
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 3000);
+          timeoutId = setTimeout(findProcess, 5000);
         }
       }
     };
     
     // Start looking for the process after a short delay
-    setTimeout(findProcess, 2000);
+    timeoutId = setTimeout(findProcess, 3000);
   }
 
   private generateBatchFile(account: Account, gameExePath: string): string {
@@ -347,6 +348,13 @@ export class GameProcessManager extends EventEmitter {
   destroy(): void {
     if (this.processCheckInterval) {
       clearInterval(this.processCheckInterval);
+      this.processCheckInterval = null;
     }
+    
+    // Clear all tracked processes
+    this.processes.clear();
+    
+    // Remove all event listeners to prevent memory leaks
+    this.removeAllListeners();
   }
 }

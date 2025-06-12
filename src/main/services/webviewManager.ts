@@ -346,14 +346,15 @@ export class WebViewManager {
     const webView = this.webViews.get(accountId);
     if (webView && mainWindow) {
       try {
-        // Remove the BrowserView from the main window
-        mainWindow.removeBrowserView(webView);
-        
-        // Clean up the webContents
+        // Remove all event listeners first to prevent memory leaks
         if (webView.webContents && !webView.webContents.isDestroyed()) {
           webView.webContents.removeAllListeners();
-          webView.webContents.close();
+          // Force destroy the webContents to free memory
+          webView.webContents.destroy();
         }
+        
+        // Remove the BrowserView from the main window
+        mainWindow.removeBrowserView(webView);
         
         // Remove from our tracking
         this.webViews.delete(accountId);
@@ -398,5 +399,11 @@ export class WebViewManager {
         height: bounds.height - 80,
       });
     }
+  }
+
+  destroy(): void {
+    // Clean up all webviews and clear memory
+    this.closeAllWebViews();
+    this.webViews.clear();
   }
 }

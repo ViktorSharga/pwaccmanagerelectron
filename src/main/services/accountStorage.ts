@@ -274,4 +274,15 @@ export class AccountStorage {
     const result = await this.importSelectedAccounts(importData.accounts);
     return result.savedAccounts;
   }
+
+  destroy(): void {
+    // Clear any pending save timeout to prevent memory leaks
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    
+    // Clear accounts array to free memory
+    this.accounts = [];
+  }
 }

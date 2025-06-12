@@ -65,4 +65,17 @@ app.on('window-all-closed', () => {
   }
 });
 
+app.on('before-quit', async () => {
+  // Clean up resources before quitting to prevent memory leaks
+  try {
+    // Trigger cleanup for all services via IPC
+    await new Promise<void>((resolve) => {
+      ipcMain.emit('cleanup-services');
+      setTimeout(resolve, 1000); // Give cleanup time to complete
+    });
+  } catch (error) {
+    console.error('Error during cleanup:', error);
+  }
+});
+
 export { mainWindow };

@@ -268,4 +268,16 @@ export function setupIpcHandlers() {
     const processInfo = running ? gameProcessManager.getRunningProcesses().find(p => p.accountId === accountId) : null;
     mainWindow?.webContents.send('process-status-update', { accountId, running, processInfo });
   });
+
+  // Add cleanup listener to properly destroy services and prevent memory leaks
+  ipcMain.on('cleanup-services', () => {
+    console.log('Cleaning up services...');
+    try {
+      gameProcessManager.destroy();
+      accountStorage.destroy();
+      webViewManager.destroy();
+    } catch (error) {
+      console.error('Error during service cleanup:', error);
+    }
+  });
 }

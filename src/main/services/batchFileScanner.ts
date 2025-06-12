@@ -4,11 +4,14 @@ import { Account } from '../../shared/types';
 import { generateAccountId } from '../../shared/utils/validation';
 
 export class BatchFileScanner {
+  private readonly MAX_SCAN_DEPTH = 5; // Limit recursion depth to prevent stack overflow
+  private readonly MAX_FILES_TO_SCAN = 1000; // Limit total files scanned to prevent memory issues
+
   async scanFolder(folderPath: string): Promise<Partial<Account>[]> {
     const accounts: Partial<Account>[] = [];
     
     try {
-      await this.scanDirectory(folderPath, accounts);
+      await this.scanDirectory(folderPath, accounts, 0);
     } catch (error) {
       console.error('Error scanning folder:', error);
     }
@@ -16,18 +19,46 @@ export class BatchFileScanner {
     return accounts;
   }
 
-  private async scanDirectory(dirPath: string, accounts: Partial<Account>[]): Promise<void> {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  private async scanDirectory(dirPath: string, accounts: Partial<Account>[], depth: number): Promise<void> {
+    // Prevent deep recursion that could cause stack overflow
+    if (depth >= this.MAX_SCAN_DEPTH) {
+      console.warn(`Reached maximum scan depth (${this.MAX_SCAN_DEPTH}) at: ${dirPath}`);
+      return;
+    }
+    
+    // Prevent scanning too many files to avoid memory issues
+    if (accounts.length >= this.MAX_FILES_TO_SCAN) {
+      console.warn(`Reached maximum file scan limit (${this.MAX_FILES_TO_SCAN}), stopping scan`);
+      return;
+    }
+
+    let entries;
+    try {
+      entries = await fs.readdir(dirPath, { withFileTypes: true });
+    } catch (error) {
+      console.warn(`Cannot read directory ${dirPath}:`, error);
+      return;
+    }
     
     for (const entry of entries) {
+      // Check limits again in the loop
+      if (accounts.length >= this.MAX_FILES_TO_SCAN) {
+        break;
+      }
+      
       const fullPath = path.join(dirPath, entry.name);
       
       if (entry.isDirectory()) {
-        await this.scanDirectory(fullPath, accounts);
+        await this.scanDirectory(fullPath, accounts, depth + 1);
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.bat')) {
-        const account = await this.parseBatchFile(fullPath);
-        if (account && account.login && account.password) {
-          accounts.push(account);
+        try {
+          const account = await this.parseBatchFile(fullPath);
+          if (account && account.login && account.password) {
+            accounts.push(account);
+          }
+        } catch (error) {
+          console.warn(`Error processing batch file ${fullPath}:`, error);
+          // Continue processing other files even if one fails
         }
       }
     }
