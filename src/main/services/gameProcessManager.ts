@@ -17,6 +17,8 @@ export class GameProcessManager extends EventEmitter {
   private FULL_SCAN_INTERVAL = 30000; // Full WMI scan interval (configurable)
   private lastFullScan = 0;
   private settingsManager: any; // Will be injected
+  private userInitiatedClosures: Set<string> = new Set(); // Track accounts closed by user action
+  private accountLaunchData: Map<string, {account: Account, gamePath: string}> = new Map(); // Store launch data for restarts
 
   constructor(settingsManager?: any) {
     super();
@@ -55,6 +57,26 @@ export class GameProcessManager extends EventEmitter {
     } catch (error) {
       console.warn('Could not load performance settings, using defaults');
       this.LIGHTWEIGHT_CHECK_INTERVAL = 180000; // Default to 3 minutes
+    }
+  }
+
+  private shouldAutoRestart(): boolean {
+    if (!this.settingsManager) return false;
+    
+    try {
+      const settings = this.settingsManager.getSettings();
+      
+      // Auto-restart only works when monitoring is enabled (not disabled)
+      const monitoringEnabled = settings.processMonitoringMode !== 'disabled';
+      const autoRestartEnabled = settings.autoRestartCrashedClients === true;
+      
+      const shouldRestart = monitoringEnabled && autoRestartEnabled;
+      console.log(`Auto-restart check: monitoring=${monitoringEnabled}, autoRestart=${autoRestartEnabled}, result=${shouldRestart}`);
+      
+      return shouldRestart;
+    } catch (error) {
+      console.warn('Could not check auto-restart settings:', error);
+      return false;
     }
   }
 
@@ -184,8 +206,45 @@ export class GameProcessManager extends EventEmitter {
         
         if (!stillRunning) {
           console.log(`Process ${processInfo.pid === -1 ? '(unknown PID)' : processInfo.pid} for account ${processInfo.login} crashed or was closed`);
-          this.processes.delete(accountId);
-          this.emit('status-update', accountId, false);
+          
+          // Check if this was a user-initiated closure or a crash
+          const wasUserInitiated = this.userInitiatedClosures.has(accountId);
+          const launchData = this.accountLaunchData.get(accountId);
+          
+          if (!wasUserInitiated && launchData && this.shouldAutoRestart()) {
+            console.log(`💥 Crash detected for ${processInfo.login} - attempting auto-restart...`);
+            
+            // Remove from current tracking
+            this.processes.delete(accountId);
+            this.emit('status-update', accountId, false);
+            
+            // Attempt restart after a short delay
+            setTimeout(async () => {
+              try {
+                console.log(`🔄 Auto-restarting ${launchData.account.login}...`);
+                await this.launchGame(launchData.account, launchData.gamePath);
+                console.log(`✅ Auto-restart successful for ${launchData.account.login}`);
+              } catch (error) {
+                console.error(`❌ Auto-restart failed for ${launchData.account.login}:`, error);
+                // If restart fails, clean up launch data
+                this.accountLaunchData.delete(accountId);
+              }
+            }, 3000); // 3-second delay before restart
+          } else {
+            // Either user-initiated or auto-restart disabled/not available
+            if (wasUserInitiated) {
+              console.log(`👤 User-initiated closure for ${processInfo.login} - no auto-restart`);
+            } else {
+              console.log(`🔇 Auto-restart disabled or no launch data for ${processInfo.login}`);
+            }
+            
+            this.processes.delete(accountId);
+            this.emit('status-update', accountId, false);
+            
+            // Clean up launch data and user closure flag
+            this.accountLaunchData.delete(accountId);
+            this.userInitiatedClosures.delete(accountId);
+          }
         }
       }
       
@@ -284,6 +343,12 @@ export class GameProcessManager extends EventEmitter {
     });
 
     child.unref();
+    
+    // Store launch data for potential auto-restart
+    this.accountLaunchData.set(account.id, { account, gamePath });
+    
+    // Clear any previous user-initiated closure flag
+    this.userInitiatedClosures.delete(account.id);
     
     // Create a placeholder entry immediately to prevent status conflicts
     this.processes.set(account.id, {
@@ -441,6 +506,10 @@ export class GameProcessManager extends EventEmitter {
       return;
     }
 
+    // Mark this as a user-initiated closure to prevent auto-restart
+    this.userInitiatedClosures.add(accountId);
+    console.log(`🚫 Marked ${processInfo.login} as user-initiated closure`);
+
     try {
       if (processInfo.pid === -1 || processInfo.pid === -2) {
         // Handle processes without known PID or in launching state
@@ -480,6 +549,9 @@ export class GameProcessManager extends EventEmitter {
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
       
+      // Clean up launch data for user-initiated closures (but keep user closure flag for potential restart prevention)
+      this.accountLaunchData.delete(accountId);
+      
       // Stop crash detection if no more processes
       if (this.processes.size === 0) {
         this.stopCrashDetection();
@@ -492,6 +564,9 @@ export class GameProcessManager extends EventEmitter {
       // Even if killing failed, remove from tracking and update status
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
+      
+      // Clean up launch data
+      this.accountLaunchData.delete(accountId);
       
       // Stop crash detection if no more processes
       if (this.processes.size === 0) {
@@ -584,6 +659,10 @@ export class GameProcessManager extends EventEmitter {
     
     // Clear process cache to free memory
     this.processCache.clear();
+    
+    // Clear auto-restart data
+    this.accountLaunchData.clear();
+    this.userInitiatedClosures.clear();
     
     // Remove all event listeners to prevent memory leaks
     this.removeAllListeners();

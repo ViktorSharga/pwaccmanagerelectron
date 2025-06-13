@@ -448,7 +448,7 @@ class PerfectWorldAccountManager {
             </div>
             <div class="form-group">
               <label>Process Monitoring</label>
-              <select name="processMonitoringMode">
+              <select name="processMonitoringMode" id="processMonitoringMode">
                 <option value="disabled" ${this.settings?.processMonitoringMode === 'disabled' ? 'selected' : ''}>Disabled (Manual Control Only)</option>
                 <option value="5min" ${this.settings?.processMonitoringMode === '5min' ? 'selected' : ''}>5 Minutes (Best Performance)</option>
                 <option value="3min" ${this.settings?.processMonitoringMode === '3min' || !this.settings?.processMonitoringMode ? 'selected' : ''}>3 Minutes (Balanced)</option>
@@ -458,6 +458,15 @@ class PerfectWorldAccountManager {
                 <strong>Disabled:</strong> Processes remain "running" until manually closed<br>
                 <strong>1-5 Minutes:</strong> Check if game processes still exist at selected intervals<br>
                 <strong>Note:</strong> Only monitors when clients are actively running
+              </small>
+            </div>
+            <div class="form-group" id="autoRestartGroup" style="display: ${this.settings?.processMonitoringMode === 'disabled' ? 'none' : 'block'};">
+              <label>
+                <input type="checkbox" name="autoRestartCrashedClients" ${this.settings?.autoRestartCrashedClients ? 'checked' : ''}>
+                Automatically Restart Crashed Clients
+              </label>
+              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                When monitoring detects a client has crashed (not manually closed), automatically restart it.
               </small>
             </div>
           </form>
@@ -478,9 +487,17 @@ class PerfectWorldAccountManager {
       const gamePathInput = form.querySelector('input[name="gamePath"]');
       const delaySlider = form.querySelector('input[name="launchDelay"]');
       const delayLabel = form.querySelector('label');
+      const monitoringSelect = form.querySelector('#processMonitoringMode');
+      const autoRestartGroup = form.querySelector('#autoRestartGroup');
       
       delaySlider.oninput = () => {
         delayLabel.textContent = `Launch Delay for Group Operations (seconds): ${delaySlider.value}`;
+      };
+      
+      // Show/hide auto-restart option based on monitoring mode
+      monitoringSelect.onchange = () => {
+        const isDisabled = monitoringSelect.value === 'disabled';
+        autoRestartGroup.style.display = isDisabled ? 'none' : 'block';
       };
       
       browseBtn.onclick = async () => {
@@ -509,6 +526,7 @@ class PerfectWorldAccountManager {
           gamePath: formData.get('gamePath'),
           launchDelay: parseInt(formData.get('launchDelay'), 10),
           processMonitoringMode: formData.get('processMonitoringMode'),
+          autoRestartCrashedClients: formData.get('autoRestartCrashedClients') === 'on',
         };
         
         try {

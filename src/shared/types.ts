@@ -19,6 +19,7 @@ export interface Settings {
   gamePath: string;
   launchDelay: number;
   processMonitoringMode?: 'disabled' | '1min' | '3min' | '5min'; // Process monitoring intervals
+  autoRestartCrashedClients?: boolean; // Auto-restart clients when they crash (only when monitoring enabled)
   windowBounds?: {
     x: number;
     y: number;
