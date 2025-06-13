@@ -5,7 +5,9 @@ import { mainWindow } from '../main';
 export function setupLoggingHandlers() {
   // Get logs with optional filtering
   ipcMain.handle('get-logs', async (_, filter?: LogFilter) => {
-    return logger.getLogs(filter);
+    const logs = logger.getLogs(filter);
+    console.log(`📋 get-logs IPC: Returning ${logs.length} logs`);
+    return logs;
   });
 
   // Get recent errors

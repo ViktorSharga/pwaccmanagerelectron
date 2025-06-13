@@ -477,6 +477,7 @@ class PerfectWorldAccountManager {
     // Load logs first if opening logs tab
     if (initialTab === 'logs') {
       this.logs = await window.electronAPI.invoke('get-logs');
+      console.log(`📋 Loaded ${this.logs.length} logs for settings dialog`);
     }
     
     return new Promise((resolve) => {
@@ -596,7 +597,7 @@ class PerfectWorldAccountManager {
           dialog.querySelector(`#${targetTab}-tab`).classList.add('active');
           
           // Load logs if switching to logs tab
-          if (targetTab === 'logs' && this.logs.length === 0) {
+          if (targetTab === 'logs') {
             this.loadLogsForDialog();
           }
         });
@@ -1468,11 +1469,15 @@ class PerfectWorldAccountManager {
   // Log rendering methods
   renderLogs() {
     const container = document.querySelector('#logs-container');
-    if (!container) return;
+    if (!container) {
+      console.log('📋 renderLogs: No logs container found');
+      return;
+    }
     
     container.innerHTML = '';
     
     const filteredLogs = this.getFilteredLogs();
+    console.log(`📋 renderLogs: Rendering ${filteredLogs.length} filtered logs from ${this.logs.length} total`);
     
     if (filteredLogs.length === 0) {
       container.innerHTML = '<div class="logs-empty">No logs to display</div>';
@@ -1572,6 +1577,7 @@ class PerfectWorldAccountManager {
   async loadLogsForDialog() {
     try {
       this.logs = await window.electronAPI.invoke('get-logs');
+      console.log(`📋 loadLogsForDialog: Loaded ${this.logs.length} logs`);
       this.renderLogs();
     } catch (error) {
       console.error('Failed to load logs:', error);
