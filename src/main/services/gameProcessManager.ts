@@ -557,6 +557,7 @@ export class GameProcessManager extends EventEmitter {
           this.startOptionalCrashDetection();
           
           // Resolve - launch is considered complete even with unknown PID
+          logger.endOperation(true);
           resolve();
         }
       } catch (error) {
@@ -575,6 +576,7 @@ export class GameProcessManager extends EventEmitter {
           this.startOptionalCrashDetection();
           
           // Resolve even with fallback - launch is complete
+          logger.endOperation(true);
           resolve();
         }
       }
