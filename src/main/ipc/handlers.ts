@@ -355,6 +355,7 @@ export function setupIpcHandlers() {
 
   gameProcessManager.on('status-update', (accountId: string, running: boolean) => {
     const processInfo = running ? gameProcessManager.getRunningProcesses().find(p => p.accountId === accountId) : null;
+    console.log(`📤 Sending status update: ${accountId}, running: ${running}, PID: ${processInfo?.pid || 'none'}`);
     mainWindow?.webContents.send('process-status-update', { accountId, running, processInfo });
   });
 

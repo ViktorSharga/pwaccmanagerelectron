@@ -95,12 +95,14 @@ class PerfectWorldAccountManager {
 
     // IPC listeners
     window.electronAPI.on('process-status-update', (_, data) => {
+      console.log(`📥 Received status update:`, data);
       const account = this.accounts.find(a => a.id === data.accountId);
       if (account) {
         account.isRunning = data.running;
         
         // Update process information
         if (data.running && data.processInfo) {
+          console.log(`📥 Updating process info for ${data.accountId}: PID ${data.processInfo.pid}`);
           this.runningProcesses.set(data.accountId, data.processInfo);
         } else {
           this.runningProcesses.delete(data.accountId);
