@@ -665,11 +665,50 @@ export class GameProcessManager extends EventEmitter {
 
     try {
       if (processInfo.pid === -1 || processInfo.pid === -2) {
-        // CRITICAL FIX: Never kill all processes when PID is unknown
-        console.warn(`⚠️ Cannot close ${processInfo.login} - PID is ${processInfo.pid === -2 ? 'still launching' : 'unknown'}`);
-        console.warn(`⚠️ To avoid killing unrelated processes, this account will be marked as stopped without force-killing`);
+        // Try to find the process by launch time and available PIDs
+        console.warn(`⚠️ PID for ${processInfo.login} is ${processInfo.pid === -2 ? 'still launching' : 'unknown'} - attempting to locate process...`);
         
-        // Just mark as stopped - don't kill anything when PID is unknown
+        try {
+          const currentProcesses = await this.getElementClientProcesses();
+          const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
+          
+          // Look for unassigned processes that might belong to this account
+          const unassignedProcesses = currentProcesses.filter(proc => !assignedPids.has(proc.pid));
+          
+          if (unassignedProcesses.length > 0) {
+            // Take the most recent unassigned process (likely belongs to this account)
+            const targetProcess = unassignedProcesses.reduce((latest, current) => 
+              current.startTime > latest.startTime ? current : latest
+            );
+            
+            console.log(`🎯 Found potential process PID ${targetProcess.pid} for ${processInfo.login}, attempting to close...`);
+            logger.info(`Attempting to close unassigned process`, {
+              accountId,
+              foundPid: targetProcess.pid,
+              processStartTime: targetProcess.startTime
+            }, 'CLOSE');
+            
+            // Try to kill this process
+            if (process.platform === 'win32') {
+              const { stdout, stderr } = await execAsync(`taskkill /PID ${targetProcess.pid} /F`);
+              console.log(`💀 Taskkill output for ${targetProcess.pid}: "${stdout.trim()}"`);
+              if (stderr) {
+                console.error(`💀 Taskkill error: "${stderr.trim()}"`);
+              } else {
+                console.log(`✅ Successfully closed process ${targetProcess.pid} for ${processInfo.login}`);
+                logger.info(`Successfully closed unassigned process`, { pid: targetProcess.pid }, 'CLOSE');
+              }
+            }
+          } else {
+            console.warn(`❌ No unassigned ElementClient processes found for ${processInfo.login}`);
+            logger.warn(`No unassigned processes found to close`, { accountId }, 'CLOSE');
+          }
+        } catch (searchError) {
+          console.error(`❌ Error searching for process to close:`, searchError);
+          logger.error(`Failed to search for process to close`, searchError, 'CLOSE');
+        }
+        
+        // Always clean up tracking regardless of whether we found/killed the process
         this.processes.delete(accountId);
         this.emit('status-update', accountId, false);
         this.accountLaunchData.delete(accountId);
@@ -678,7 +717,8 @@ export class GameProcessManager extends EventEmitter {
           this.stopCrashDetection();
         }
         
-        console.log(`✅ Marked ${processInfo.login} as stopped (PID was unknown - no process killed)`);
+        console.log(`✅ Marked ${processInfo.login} as stopped`);
+        logger.endOperation(true);
         return;
       } else {
         // Handle processes with known PID - ONLY kill the specific PID
@@ -687,21 +727,37 @@ export class GameProcessManager extends EventEmitter {
         if (process.platform === 'win32') {
           // First verify the PID still exists and belongs to ElementClient.exe
           try {
+            console.log(`🔍 Verifying PID ${processInfo.pid} for ${processInfo.login}...`);
             const { stdout: verifyOutput } = await execAsync(`tasklist /fi "pid eq ${processInfo.pid}" /fo csv /nh`);
+            console.log(`🔍 Tasklist verification output: "${verifyOutput.trim()}"`);
+            
             if (!verifyOutput.includes('ElementClient.exe')) {
-              console.log(`Process ${processInfo.pid} is not ElementClient.exe or already closed`);
+              console.log(`❌ Process ${processInfo.pid} is not ElementClient.exe or already closed`);
+              logger.info(`Process verification failed - not ElementClient.exe or already closed`, {
+                accountId,
+                pid: processInfo.pid,
+                verifyOutput: verifyOutput.trim()
+              }, 'CLOSE');
               this.processes.delete(accountId);
               this.emit('status-update', accountId, false);
               this.accountLaunchData.delete(accountId);
+              logger.endOperation(true);
               return;
             }
             
+            console.log(`✅ PID ${processInfo.pid} verified as ElementClient.exe, proceeding to kill...`);
             // Kill only the specific PID
             const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
-            console.log(`Taskkill output: ${stdout}`);
-            if (stderr) console.error(`Taskkill error: ${stderr}`);
+            console.log(`💀 Taskkill output: "${stdout.trim()}"`);
+            if (stderr) {
+              console.error(`💀 Taskkill error: "${stderr.trim()}"`);
+              logger.error(`Taskkill command failed`, { stdout: stdout.trim(), stderr: stderr.trim() }, 'CLOSE');
+            } else {
+              logger.info(`Successfully killed process`, { pid: processInfo.pid, output: stdout.trim() }, 'CLOSE');
+            }
           } catch (verifyError) {
-            console.warn(`Could not verify or kill PID ${processInfo.pid}:`, verifyError);
+            console.warn(`❌ Could not verify or kill PID ${processInfo.pid}:`, verifyError);
+            logger.error(`Failed to verify or kill process`, verifyError, 'CLOSE');
           }
         } else {
           try {
