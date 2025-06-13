@@ -799,6 +799,7 @@ export class GameProcessManager extends EventEmitter {
 
   async closeMultipleGames(accountIds: string[]): Promise<void> {
     console.log(`🔄 closeMultipleGames called with accountIds: [${accountIds.join(', ')}]`);
+    logger.startOperation(`Closing ${accountIds.length} selected accounts`);
     
     for (const accountId of accountIds) {
       const processInfo = this.processes.get(accountId);
@@ -812,15 +813,29 @@ export class GameProcessManager extends EventEmitter {
     const closePromises = accountIds.map(accountId => this.closeGame(accountId));
     const results = await Promise.allSettled(closePromises);
     
+    // Count successes and failures
+    let successCount = 0;
+    let failureCount = 0;
+    
     // Log results for debugging
     results.forEach((result, index) => {
       const accountId = accountIds[index];
       if (result.status === 'rejected') {
         console.error(`❌ Failed to close account ${accountId}:`, result.reason);
+        failureCount++;
       } else {
         console.log(`✅ Successfully processed close for account ${accountId}`);
+        successCount++;
       }
     });
+    
+    logger.info(`Multiple close operation completed`, {
+      total: accountIds.length,
+      successful: successCount,
+      failed: failureCount
+    }, 'CLOSE');
+    
+    logger.endOperation(failureCount === 0);
   }
 
   async closeAllGames(): Promise<void> {
