@@ -7,6 +7,12 @@ import { SettingsManager } from './services/settingsManager';
 let mainWindow: BrowserWindow | null = null;
 let settingsManager: SettingsManager;
 
+app.commandLine.appendSwitch('lang', 'en-US');
+app.commandLine.appendSwitch('--enable-features', 'DefaultEncodingIsUTF8');
+if (process.platform === 'win32') {
+  process.env.NODE_ENCODING = 'utf8';
+}
+
 function createWindow() {
   settingsManager = new SettingsManager();
   const savedBounds = settingsManager.getWindowBounds();

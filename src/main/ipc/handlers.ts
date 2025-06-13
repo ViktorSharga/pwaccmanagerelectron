@@ -62,7 +62,17 @@ export function setupIpcHandlers() {
   webViewManager = new WebViewManager();
 
   ipcMain.handle('get-accounts', async () => {
-    return await accountStorage.getAccounts();
+    const accounts = await accountStorage.getAccounts();
+    
+    // DIAGNOSTIC: Log when accounts are requested
+    console.log(`\n📋 GET-ACCOUNTS: Returning ${accounts.length} accounts`);
+    accounts.forEach(account => {
+      if (account.characterName && account.characterName.includes('?')) {
+        console.error(`📋 ⚠️ ${account.login} has corrupted character: "${account.characterName}"`);
+      }
+    });
+    
+    return accounts;
   });
 
   ipcMain.handle('save-account', async (_, account: Account) => {
@@ -124,22 +134,47 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('launch-game', async (_, accountIds: string[]) => {
+    console.log('\n========== LAUNCH-GAME HANDLER DIAGNOSTIC ==========');
+    console.log('📨 Received accountIds:', accountIds);
+    
     const settings = await settingsManager.getSettings();
     if (!settings.gamePath) {
       return { success: false, error: 'Game path not configured' };
     }
 
+    // Fetch accounts fresh from storage
     const accounts = await accountStorage.getAccounts();
+    console.log(`📨 Fetched ${accounts.length} accounts from storage`);
+    
     const accountsToLaunch = accounts.filter(acc => accountIds.includes(acc.id));
     
-    // Debug character names from storage
-    accountsToLaunch.forEach(account => {
+    // DIAGNOSTIC: Check character names from storage
+    console.log(`📨 Accounts to launch: ${accountsToLaunch.length}`);
+    accountsToLaunch.forEach((account, index) => {
+      console.log(`\n📨 Account ${index + 1}/${accountsToLaunch.length}:`);
+      console.log(`  Login: ${account.login}`);
+      console.log(`  ID: ${account.id}`);
+      
       if (account.characterName) {
-        console.log(`🔤 Account from storage - Login: ${account.login}, Character: "${account.characterName}"`);
-        console.log(`🔤 Character name type: ${typeof account.characterName}`);
-        console.log(`🔤 Character name bytes:`, Buffer.from(account.characterName, 'utf8'));
+        console.log(`  Character name: "${account.characterName}"`);
+        console.log(`  Character name type: ${typeof account.characterName}`);
+        console.log(`  Character name length: ${account.characterName.length}`);
+        console.log(`  Contains '?': ${account.characterName.includes('?')}`);
+        console.log(`  UTF-8 bytes:`, Buffer.from(account.characterName, 'utf8'));
+        console.log(`  Char codes:`, [...account.characterName].map(c => 
+          `${c}(U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
+        ).join(' '));
+        
+        if (account.characterName.includes('?')) {
+          console.error(`  ⚠️ CHARACTER ALREADY CORRUPTED IN STORAGE!`);
+        } else {
+          console.log(`  ✅ Character name is intact`);
+        }
+      } else {
+        console.log(`  Character name: not specified`);
       }
     });
+    console.log('==================================================\n');
     
     // Validate delay is within acceptable range
     const delay = Math.max(10, Math.min(60, settings.launchDelay || 15));

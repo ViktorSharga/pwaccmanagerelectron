@@ -17,9 +17,29 @@ export class AccountStorage {
 
   private async loadAccounts(): Promise<void> {
     try {
+      // Explicitly use UTF-8 encoding
       const data = await fs.readFile(this.accountsPath, 'utf-8');
+      
+      // Debug the raw JSON data
+      console.log('📄 Loading accounts from:', this.accountsPath);
+      console.log('📄 Raw JSON preview (first 200 chars):', data.substring(0, 200));
+      
       this.accounts = JSON.parse(data);
+      
+      // Debug loaded accounts for Cyrillic corruption
+      console.log(`📄 Loaded ${this.accounts.length} accounts`);
+      this.accounts.forEach((account, index) => {
+        if (account.characterName) {
+          const hasQuestionMarks = account.characterName.includes('?');
+          if (hasQuestionMarks) {
+            console.error(`⚠️ Account ${account.login} has corrupted character name in JSON file: "${account.characterName}"`);
+          } else {
+            console.log(`✅ Account ${account.login} character name loaded correctly: "${account.characterName}"`);
+          }
+        }
+      });
     } catch (error) {
+      console.log('📄 No existing accounts file or error reading it:', error);
       this.accounts = [];
     }
   }
@@ -37,10 +57,25 @@ export class AccountStorage {
   private async saveAccountsToDisk(): Promise<void> {
     const dir = path.dirname(this.accountsPath);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(this.accountsPath, JSON.stringify(this.accounts, null, 2));
+    
+    // Debug before saving
+    console.log('💾 Saving accounts to disk...');
+    this.accounts.forEach(account => {
+      if (account.characterName) {
+        console.log(`💾 Saving ${account.login} with character: "${account.characterName}"`);
+      }
+    });
+    
+    // IMPORTANT: Explicitly specify UTF-8 encoding when writing
+    const jsonContent = JSON.stringify(this.accounts, null, 2);
+    await fs.writeFile(this.accountsPath, jsonContent, 'utf-8');
+    console.log('💾 Accounts saved successfully');
   }
 
   async getAccounts(): Promise<Account[]> {
+    // Debug when accounts are requested
+    console.log('🔍 getAccounts called, returning', this.accounts.length, 'accounts');
+    
     // Populate runtime sourceBatchFile field if the original batch file still exists
     const accountsWithBatchFiles = await Promise.all(
       this.accounts.map(async (account) => {
@@ -57,6 +92,11 @@ export class AccountStorage {
           }
         }
         
+        // Debug character name when returning accounts
+        if (accountCopy.characterName && accountCopy.characterName.includes('?')) {
+          console.error(`⚠️ getAccounts: ${accountCopy.login} has corrupted character name: "${accountCopy.characterName}"`);
+        }
+        
         return accountCopy;
       })
     );
@@ -65,6 +105,14 @@ export class AccountStorage {
   }
 
   async saveAccount(account: Partial<Account>): Promise<Account> {
+    // Debug incoming account data
+    if (account.characterName) {
+      console.log(`📝 saveAccount: Saving ${account.login} with character: "${account.characterName}"`);
+      if (account.characterName.includes('?')) {
+        console.error(`⚠️ saveAccount: Character name already corrupted!`);
+      }
+    }
+    
     const errors = validateAccount(account);
     if (errors.length > 0) {
       throw new Error(errors.join(', '));
@@ -121,7 +169,8 @@ export class AccountStorage {
 
   async exportAccounts(accounts: Account[], filePath: string, format: 'json' | 'csv'): Promise<void> {
     if (format === 'json') {
-      await fs.writeFile(filePath, JSON.stringify(accounts, null, 2));
+      // Ensure UTF-8 encoding for export
+      await fs.writeFile(filePath, JSON.stringify(accounts, null, 2), 'utf-8');
     } else {
       const headers = ['login', 'password', 'server', 'characterName', 'description', 'owner'];
       const csv = [
@@ -134,7 +183,8 @@ export class AccountStorage {
         ),
       ].join('\n');
       
-      await fs.writeFile(filePath, csv);
+      // Ensure UTF-8 encoding for CSV export
+      await fs.writeFile(filePath, csv, 'utf-8');
     }
   }
 
@@ -143,7 +193,12 @@ export class AccountStorage {
     existing: string[];
     new: string[];
   }> {
+    // Ensure UTF-8 encoding when reading import files
     const content = await fs.readFile(filePath, 'utf-8');
+    
+    console.log(`📥 Importing from ${filePath}, format: ${format}`);
+    console.log(`📥 File content preview (first 200 chars):`, content.substring(0, 200));
+    
     let importedAccounts: Partial<Account>[] = [];
 
     if (format === 'json') {
@@ -169,6 +224,14 @@ export class AccountStorage {
         if (normalized.character_name !== undefined) {
           normalized.characterName = normalized.character_name;
           delete normalized.character_name;
+        }
+        
+        // Debug imported character names
+        if (normalized.characterName) {
+          console.log(`📥 Imported ${normalized.login} with character: "${normalized.characterName}"`);
+          if (normalized.characterName.includes('?')) {
+            console.error(`⚠️ Import: Character name already corrupted in source file!`);
+          }
         }
         
         // Ensure empty strings are converted to undefined for optional fields
@@ -230,6 +293,11 @@ export class AccountStorage {
     
     for (const account of selectedAccounts) {
       try {
+        // Debug before saving
+        if (account.characterName) {
+          console.log(`📥 Processing import for ${account.login} with character: "${account.characterName}"`);
+        }
+        
         // Remove id and runtime-only fields to ensure accounts are treated as new
         const { id, isRunning, sourceBatchFile, ...accountToImport } = account;
         
