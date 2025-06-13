@@ -87,28 +87,8 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('delete-account', async (_, id: string) => {
-    // First, get the account to find the login before deleting
-    const accounts = await accountStorage.getAccounts();
-    const accountToDelete = accounts.find(account => account.id === id);
-    
-    if (!accountToDelete) {
-      throw new Error('Account not found');
-    }
-    
-    // Delete the account from storage
     await accountStorage.deleteAccount(id);
-    
-    // Clean up the associated BAT file
-    const batFileManager = gameProcessManager.getBatFileManager();
-    const batDeleted = batFileManager.deleteBatFile(accountToDelete.login);
-    
-    logger.info(`Account deleted: ${accountToDelete.login}`, {
-      accountId: id,
-      login: accountToDelete.login,
-      batFileDeleted: batDeleted
-    }, 'ACCOUNT_DELETION');
-    
-    return { success: true, batFileDeleted: batDeleted };
+    return { success: true };
   });
 
   ipcMain.handle('delete-batch-file', async (_, filePath: string) => {
@@ -328,29 +308,7 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('import-selected-accounts', async (_, selectedAccounts: Partial<Account>[]) => {
-    // Get current settings to access game path
-    const settings = await settingsManager.getSettings();
-    const createBatchFiles = true; // Always create batch files for imported accounts
-    
-    const result = await accountStorage.importSelectedAccounts(
-      selectedAccounts, 
-      createBatchFiles,
-      settings.gamePath
-    );
-    
-    // Auto-create BAT files for imported accounts using PowerShell
-    if (result.savedAccounts.length > 0 && settings.gamePath) {
-      logger.info(`Creating BAT files for ${result.savedAccounts.length} imported accounts`, null, 'IMPORT');
-      
-      const batFileManager = gameProcessManager.getBatFileManager();
-      const batResult = await batFileManager.createBatFilesForAccounts(result.savedAccounts, settings.gamePath);
-      
-      logger.info(`BAT file creation results`, {
-        successful: batResult.success.length,
-        failed: batResult.failed.length,
-        failedAccounts: batResult.failed.map(f => ({ login: f.account.login, error: f.error }))
-      }, 'IMPORT');
-    }
+    const result = await accountStorage.importSelectedAccounts(selectedAccounts);
     
     return { 
       success: true, 

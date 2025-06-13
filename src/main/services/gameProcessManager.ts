@@ -4,7 +4,6 @@ import { promisify } from 'util';
 import * as path from 'path';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
-import { BatFileManager } from './batFileManager';
 
 const execAsync = promisify(exec);
 
@@ -16,12 +15,10 @@ export class GameProcessManager extends EventEmitter {
   private settingsManager: any; // Will be injected
   private userInitiatedClosures: Set<string> = new Set(); // Track accounts closed by user action
   private accountLaunchData: Map<string, {account: Account, gamePath: string}> = new Map(); // Store launch data for restarts
-  private batFileManager: BatFileManager;
 
-  constructor(settingsManager?: any, gamePath?: string) {
+  constructor(settingsManager?: any) {
     super();
     this.settingsManager = settingsManager;
-    this.batFileManager = new BatFileManager(gamePath || '');
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     logger.info('GameProcessManager initialized - monitoring disabled for performance', null, 'PROCESS_MANAGER');
@@ -534,16 +531,35 @@ export class GameProcessManager extends EventEmitter {
         // Record launch time for reliable new process detection
         const launchTime = new Date();
         
-        // Ensure BAT file exists (create if missing using iconv encoding)
-        const batPath = this.batFileManager.ensureBatFile(account);
-        logger.info(`Using BAT file for launch: ${batPath}`, null, 'LAUNCH');
+        // Build command arguments for direct game launch
+        const gameDir = path.dirname(gamePath);
+        const exeName = path.basename(gamePath);
+        
+        const args = [
+          'startbypatcher',
+          'nocheck',
+          `user:${account.login}`,
+          `pwd:${account.password}`
+        ];
+        
+        // Add character name if present (without any encoding fixes for now)
+        if (account.characterName && account.characterName.trim()) {
+          args.push(`role:${account.characterName}`);
+        }
+        
+        args.push('rendernofocus');
+        
+        logger.info(`Launching game directly: ${exeName} ${args.join(' ')}`, {
+          gameDir,
+          args,
+          account: account.login
+        }, 'LAUNCH');
 
-        // Launch using the permanent BAT file
-        const gameDir = path.dirname(batPath);
-        const child: ChildProcess = spawn('cmd.exe', ['/c', `"${batPath}"`], {
-          detached: true,
-          stdio: 'ignore',
+        // Launch the game directly
+        const child: ChildProcess = spawn(exeName, args, {
           cwd: gameDir,
+          detached: true,
+          stdio: 'ignore'
         });
 
         child.unref();
@@ -704,10 +720,6 @@ export class GameProcessManager extends EventEmitter {
     setTimeout(findProcess, 2000);
   }
 
-  // Expose BAT file manager for external use
-  getBatFileManager(): BatFileManager {
-    return this.batFileManager;
-  }
 
   async closeGame(accountId: string): Promise<void> {
     const processInfo = this.processes.get(accountId);

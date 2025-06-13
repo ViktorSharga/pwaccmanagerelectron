@@ -284,7 +284,7 @@ export class AccountStorage {
     };
   }
 
-  async importSelectedAccounts(selectedAccounts: Partial<Account>[], createBatchFiles: boolean = false, gamePath?: string): Promise<{
+  async importSelectedAccounts(selectedAccounts: Partial<Account>[]): Promise<{
     savedAccounts: Account[];
     errors: { login: string; error: string }[];
   }> {
@@ -300,8 +300,6 @@ export class AccountStorage {
         
         // Remove id and runtime-only fields to ensure accounts are treated as new
         const { id, isRunning, sourceBatchFile, ...accountToImport } = account;
-        
-        // Note: BAT file creation is now handled in the IPC handlers after import
         
         const saved = await this.saveAccount(accountToImport);
         savedAccounts.push(saved);
