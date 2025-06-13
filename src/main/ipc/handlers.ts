@@ -196,7 +196,13 @@ export function setupIpcHandlers() {
         const account = accountsToLaunch[i];
         console.log(`🚀 Launching ${account.login} (${i + 1}/${accountsToLaunch.length})`);
         await gameProcessManager.launchGame(account, settings.gamePath);
-        console.log(`✅ Launch initiated for ${account.login}`);
+        console.log(`✅ Launch completed for ${account.login} - PID associated`);
+        
+        // Additional delay before next launch to ensure processes are stable
+        if (i < accountsToLaunch.length - 1) {
+          console.log(`⏱️ Waiting additional 2 seconds for process stabilization...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
     }
     

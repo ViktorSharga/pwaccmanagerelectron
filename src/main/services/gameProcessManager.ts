@@ -26,6 +26,9 @@ export class GameProcessManager extends EventEmitter {
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     console.log('GameProcessManager initialized - monitoring disabled for performance');
+    
+    // Scan for existing processes on startup
+    this.scanExistingProcesses();
   }
 
   private adjustPerformanceSettings(): void {
@@ -105,11 +108,16 @@ export class GameProcessManager extends EventEmitter {
 
   private async scanExistingProcesses(): Promise<void> {
     try {
-      // Just log that we're starting up - no need to scan existing processes
-      // We only care about processes we launch ourselves
-      console.log('GameProcessManager started - will track new launches only');
+      // Scan for existing ElementClient.exe processes that might be running
+      const existingPids = await this.getElementClientProcessesUltraLight();
+      if (existingPids.length > 0) {
+        console.log(`🔍 GameProcessManager startup: Found ${existingPids.length} existing ElementClient.exe processes: [${existingPids.join(', ')}]`);
+        console.log('📌 These processes will be considered "pre-existing" and excluded from new launch detection');
+      } else {
+        console.log('🔍 GameProcessManager startup: No existing ElementClient.exe processes found');
+      }
     } catch (error) {
-      console.error('Error during startup:', error);
+      console.error('Error scanning existing processes during startup:', error);
     }
   }
 
@@ -302,73 +310,85 @@ export class GameProcessManager extends EventEmitter {
   }
 
   async launchGame(account: Account, gamePath: string): Promise<void> {
-    const gameExePath = await this.findElementClientPath(gamePath);
-    
-    // Get PIDs before launch to compare (ultra-lightweight)
-    // Include already tracked processes to avoid conflicts
-    const currentPids = await this.getElementClientProcessesUltraLight();
-    const trackedPids = Array.from(this.processes.values()).map(p => p.pid).filter(pid => pid !== -1);
-    const pidsBeforeLaunch = new Set([...currentPids, ...trackedPids]);
-    
-    const batContent = this.generateBatchFile(account, gameExePath);
-    
-    // Validate batch file format
-    if (!this.validateBatchFileFormat(batContent)) {
-      console.warn('Generated batch file may have formatting issues');
-    }
-    
-    const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
-    await fs.mkdir(tempDir, { recursive: true });
-    
-    // Sanitize login for filename
-    const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-    const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
-    
-    // Write batch file with UTF-8 encoding (always use UTF-8 with BOM)
-    console.log(`🔤 Writing batch file for ${account.login}...`);
-    
-    // ALWAYS use UTF-8 with BOM for batch files
-    const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-    const contentBuffer = Buffer.from(batContent, 'utf8');
-    const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
-    
-    await fs.writeFile(batPath, finalBuffer);
-    console.log(`✅ Batch file written with UTF-8 encoding: ${batPath}`);
+    return new Promise(async (resolve, reject) => {
+      try {
+        const gameExePath = await this.findElementClientPath(gamePath);
+        
+        // Get ALL ElementClient.exe PIDs before launch (including pre-existing ones not tracked by us)
+        const allCurrentPids = await this.getElementClientProcessesUltraLight();
+        console.log(`📊 Pre-launch: Found ${allCurrentPids.length} existing ElementClient.exe processes: [${allCurrentPids.join(', ')}]`);
+        
+        // Create set of all existing PIDs to exclude from new process detection
+        const pidsBeforeLaunch = new Set(allCurrentPids);
+        
+        const batContent = this.generateBatchFile(account, gameExePath);
+        
+        // Validate batch file format
+        if (!this.validateBatchFileFormat(batContent)) {
+          console.warn('Generated batch file may have formatting issues');
+        }
+        
+        const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
+        await fs.mkdir(tempDir, { recursive: true });
+        
+        // Sanitize login for filename
+        const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
+        const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
+        
+        // Write batch file with UTF-8 encoding (always use UTF-8 with BOM)
+        console.log(`🔤 Writing batch file for ${account.login}...`);
+        
+        // ALWAYS use UTF-8 with BOM for batch files
+        const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+        const contentBuffer = Buffer.from(batContent, 'utf8');
+        const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
+        
+        await fs.writeFile(batPath, finalBuffer);
+        console.log(`✅ Batch file written with UTF-8 encoding: ${batPath}`);
 
-    const gameDir = path.dirname(gameExePath);
-    const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
-      detached: true,
-      stdio: 'ignore',
-      cwd: gameDir,
-    });
+        const gameDir = path.dirname(gameExePath);
+        const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
+          detached: true,
+          stdio: 'ignore',
+          cwd: gameDir,
+        });
 
-    child.unref();
-    
-    // Store launch data for potential auto-restart
-    this.accountLaunchData.set(account.id, { account, gamePath });
-    
-    // Clear any previous user-initiated closure flag
-    this.userInitiatedClosures.delete(account.id);
-    
-    // Create a placeholder entry immediately to prevent status conflicts
-    this.processes.set(account.id, {
-      accountId: account.id,
-      pid: -2, // Special marker for "launching" state
-      login: account.login,
-      windowTitle: '',
+        child.unref();
+        
+        // Store launch data for potential auto-restart
+        this.accountLaunchData.set(account.id, { account, gamePath });
+        
+        // Clear any previous user-initiated closure flag
+        this.userInitiatedClosures.delete(account.id);
+        
+        // Create a placeholder entry immediately to prevent status conflicts
+        this.processes.set(account.id, {
+          accountId: account.id,
+          pid: -2, // Special marker for "launching" state
+          login: account.login,
+          windowTitle: '',
+        });
+        
+        // Set initial status to running (will be updated when we find the actual process)
+        this.emit('status-update', account.id, true);
+        
+        // Clean up batch file
+        setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
+        
+        // Wait and find the new ElementClient.exe process - resolve when PID is found
+        this.findNewElementClientProcess(account, pidsBeforeLaunch, resolve, reject);
+      } catch (error) {
+        reject(error);
+      }
     });
-    
-    // Set initial status to running (will be updated when we find the actual process)
-    this.emit('status-update', account.id, true);
-    
-    // Clean up batch file
-    setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
-    
-    // Wait and find the new ElementClient.exe process
-    this.findNewElementClientProcess(account, pidsBeforeLaunch);
   }
 
-  private async findNewElementClientProcess(account: Account, pidsBeforeLaunch: Set<number>): Promise<void> {
+  private async findNewElementClientProcess(
+    account: Account, 
+    pidsBeforeLaunch: Set<number>, 
+    resolve: () => void, 
+    reject: (error: any) => void
+  ): Promise<void> {
     const maxAttempts = 6; // Increased attempts for better detection
     let attempts = 0;
     
@@ -380,9 +400,16 @@ export class GameProcessManager extends EventEmitter {
         const currentPids = await this.getElementClientProcessesUltraLight();
         const newPids = currentPids.filter(pid => !pidsBeforeLaunch.has(pid));
         
+        console.log(`🔍 Attempt ${attempts}/${maxAttempts} for ${account.login}:`);
+        console.log(`  📊 Current PIDs: [${currentPids.join(', ')}]`);
+        console.log(`  🆕 New PIDs: [${newPids.join(', ')}]`);
+        
         // Filter out PIDs that are already assigned to other accounts
-        const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid));
+        const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
         const availablePids = newPids.filter(pid => !assignedPids.has(pid));
+        
+        console.log(`  🏷️ Already assigned PIDs: [${Array.from(assignedPids).join(', ')}]`);
+        console.log(`  ✅ Available PIDs: [${availablePids.join(', ')}]`);
         
         if (availablePids.length > 0) {
           // Take the first available PID
@@ -401,6 +428,9 @@ export class GameProcessManager extends EventEmitter {
           
           // Start crash detection now that we have a process to monitor
           this.startOptionalCrashDetection();
+          
+          // Resolve the Promise - PID found successfully
+          resolve();
           return;
         }
         
@@ -421,6 +451,9 @@ export class GameProcessManager extends EventEmitter {
           console.log(`Created fallback process entry for ${account.login} (PID unknown)`);
           this.emit('status-update', account.id, true);
           this.startOptionalCrashDetection();
+          
+          // Resolve even with fallback - launch is complete
+          resolve();
         }
       } catch (error) {
         console.error('Error finding new ElementClient process:', error);
@@ -436,6 +469,9 @@ export class GameProcessManager extends EventEmitter {
           });
           this.emit('status-update', account.id, true);
           this.startOptionalCrashDetection();
+          
+          // Resolve even with fallback - launch is complete
+          resolve();
         }
       }
     };
