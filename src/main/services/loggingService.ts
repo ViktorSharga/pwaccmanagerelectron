@@ -187,8 +187,11 @@ export class LoggingService extends EventEmitter {
 
   // Simple status bar operation management
   startOperation(operation: string): void {
+    console.log(`🚀 LoggingService.startOperation("${operation}")`);
+    
     // Clear any existing timer
     if (this.operationTimer) {
+      console.log(`⏰ Clearing existing timer`);
       clearTimeout(this.operationTimer);
       this.operationTimer = null;
     }
@@ -198,10 +201,13 @@ export class LoggingService extends EventEmitter {
     this.log(LogLevel.OPERATION, operation, null, 'OPERATION_START');
     
     // Immediately update status bar with new operation
+    console.log(`📡 Emitting operation-changed: "${operation}"`);
     this.emit('operation-changed', operation);
     
     // Set timer to clear status bar after 10 seconds
+    console.log(`⏰ Setting 10-second auto-clear timer`);
     this.operationTimer = setTimeout(() => {
+      console.log(`⏰ 10-second timer expired - clearing status bar`);
       this.currentOperation = null;
       this.emit('operation-changed', null);
       this.operationTimer = null;

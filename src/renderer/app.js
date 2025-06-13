@@ -136,6 +136,7 @@ class PerfectWorldAccountManager {
     });
     
     window.electronAPI.on('operation-changed', (_, operation) => {
+      console.log(`📥 Received operation-changed: "${operation}"`);
       this.currentOperation = operation;
       this.updateOperationStatus();
     });
@@ -1425,18 +1426,25 @@ class PerfectWorldAccountManager {
 
   // Status bar and logging methods
   updateOperationStatus() {
+    console.log(`🖼️ updateOperationStatus called with: "${this.currentOperation}"`);
+    
     const operationStatus = document.getElementById('operation-status');
     const operationText = document.getElementById('operation-text');
     
-    if (!operationStatus || !operationText) return;
+    if (!operationStatus || !operationText) {
+      console.log(`❌ Status bar elements not found: operationStatus=${!!operationStatus}, operationText=${!!operationText}`);
+      return;
+    }
     
     if (this.currentOperation) {
+      console.log(`🔄 Showing operation: "${this.currentOperation}"`);
       operationStatus.classList.remove('idle');
       operationStatus.innerHTML = `
         <div class="operation-spinner"></div>
         <span>${this.escapeHtml(this.currentOperation)}</span>
       `;
     } else {
+      console.log(`✅ Clearing status bar to Ready`);
       operationStatus.classList.add('idle');
       operationStatus.innerHTML = '<span>Ready</span>';
     }

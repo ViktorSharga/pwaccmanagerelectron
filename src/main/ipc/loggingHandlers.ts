@@ -66,6 +66,7 @@ export function setupLoggingHandlers() {
   });
 
   logger.on('operation-changed', (operation) => {
+    console.log(`📤 Sending operation-changed to renderer: "${operation}"`);
     mainWindow?.webContents.send('operation-changed', operation);
   });
 
