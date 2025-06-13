@@ -2,11 +2,9 @@ import { EventEmitter } from 'events';
 import { spawn, ChildProcess, exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as iconv from 'iconv-lite';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
+import { BatFileManager } from './batFileManager';
 
 const execAsync = promisify(exec);
 
@@ -14,17 +12,16 @@ export class GameProcessManager extends EventEmitter {
   private processes: Map<string, ProcessInfo> = new Map();
   private processCheckInterval: NodeJS.Timeout | null = null;
   private processCache: Map<number, {windowTitle: string, commandLine: string, lastChecked: number}> = new Map();
-  private readonly CACHE_DURATION = 30000; // Cache process info for 30 seconds
   private LIGHTWEIGHT_CHECK_INTERVAL = 5000; // Quick checks interval (configurable)
-  private FULL_SCAN_INTERVAL = 30000; // Full WMI scan interval (configurable)
-  private lastFullScan = 0;
   private settingsManager: any; // Will be injected
   private userInitiatedClosures: Set<string> = new Set(); // Track accounts closed by user action
   private accountLaunchData: Map<string, {account: Account, gamePath: string}> = new Map(); // Store launch data for restarts
+  private batFileManager: BatFileManager;
 
   constructor(settingsManager?: any) {
     super();
     this.settingsManager = settingsManager;
+    this.batFileManager = new BatFileManager();
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     logger.info('GameProcessManager initialized - monitoring disabled for performance', null, 'PROCESS_MANAGER');
@@ -521,53 +518,13 @@ export class GameProcessManager extends EventEmitter {
   }
 
 
-  private async findElementClientPath(folderPath: string): Promise<string> {
-    try {
-      // Check both root folder and element subfolder
-      const possiblePaths = [
-        folderPath,
-        path.join(folderPath, 'element')
-      ];
-      
-      for (const checkPath of possiblePaths) {
-        try {
-          const files = await fs.readdir(checkPath);
-          const executableName = files.find(file => {
-            const lowerFile = file.toLowerCase();
-            return lowerFile === 'elementclient.exe' ||
-                   lowerFile === 'element client.exe' ||
-                   lowerFile === 'element_client.exe' ||
-                   (lowerFile.includes('elementclient') && lowerFile.endsWith('.exe'));
-          });
-          
-          if (executableName) {
-            const fullPath = path.join(checkPath, executableName);
-            const stats = await fs.stat(fullPath);
-            if (stats.isFile()) {
-              return fullPath;
-            }
-          }
-        } catch (dirError) {
-          // Directory doesn't exist or can't be read, continue to next path
-          continue;
-        }
-      }
-      
-      throw new Error('elementclient.exe not found');
-    } catch (error) {
-      console.error('Error finding elementclient.exe:', error);
-      throw new Error('elementclient.exe not found');
-    }
-  }
 
   async launchGame(account: Account, gamePath: string): Promise<void> {
     logger.startOperation(`Launching ${account.login}`);
     
     return new Promise(async (resolve, reject) => {
       try {
-        const gameExePath = await this.findElementClientPath(gamePath);
-        
-        // Get ALL existing ElementClient.exe processes before launch (only when needed)
+        // Get ALL existing ElementClient.exe processes before launch
         const existingProcesses = await this.getElementClientProcesses();
         logger.info(`Pre-launch: Found ${existingProcesses.length} existing ElementClient.exe processes`, {
           count: existingProcesses.length,
@@ -577,31 +534,13 @@ export class GameProcessManager extends EventEmitter {
         // Record launch time for reliable new process detection
         const launchTime = new Date();
         
-        const batContent = this.generateBatchFile(account, gameExePath);
-        
-        // Validate batch file format
-        if (!this.validateBatchFileFormat(batContent)) {
-          console.warn('Generated batch file may have formatting issues');
-        }
-        
-        const tempDir = path.join(os.tmpdir(), 'pw-account-manager');
-        await fs.mkdir(tempDir, { recursive: true });
-        
-        // Sanitize login for filename
-        const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-        const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
-        
-        // Write batch file with proper encoding conversion from UTF-8 to Windows-1251
-        console.log(`🔤 Writing batch file for ${account.login}...`);
-        console.log(`🔤 Original content (UTF-8): Character name = "${account.characterName || 'none'}"`);
-        
-        // Convert UTF-8 content to Windows-1251 buffer using iconv-lite
-        const win1251Buffer = iconv.encode(batContent, 'win1251');
-        await fs.writeFile(batPath, win1251Buffer);
-        console.log(`✅ Batch file written with UTF-8 to Windows-1251 conversion: ${batPath}`);
+        // Ensure BAT file exists (create if missing using PowerShell)
+        const batPath = await this.batFileManager.ensureBatFile(account, gamePath);
+        logger.info(`Using BAT file for launch: ${batPath}`, null, 'LAUNCH');
 
-        const gameDir = path.dirname(gameExePath);
-        const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
+        // Launch using the permanent BAT file
+        const gameDir = path.dirname(batPath);
+        const child: ChildProcess = spawn('cmd.exe', ['/c', `"${batPath}"`], {
           detached: true,
           stdio: 'ignore',
           cwd: gameDir,
@@ -626,9 +565,6 @@ export class GameProcessManager extends EventEmitter {
         
         // Set initial status to running (will be updated when we find the actual process)
         this.emit('status-update', account.id, true);
-        
-        // Clean up batch file
-        setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
         
         // Wait and find the new ElementClient.exe process - resolve when PID is found
         this.findNewElementClientProcess(account, existingProcesses, launchTime, resolve, reject);
@@ -768,69 +704,9 @@ export class GameProcessManager extends EventEmitter {
     setTimeout(findProcess, 2000);
   }
 
-  private generateBatchFile(account: Account, gameExePath: string): string {
-    const characterName = account.characterName || '';
-    console.log(`🔤 Generating batch file for ${account.login}`);
-    if (characterName) {
-      console.log(`🔤 Character name (UTF-8): "${characterName}"`);
-      console.log(`🔤 Character name bytes:`, Buffer.from(characterName, 'utf8'));
-      console.log(`🔤 Character name char codes:`, [...characterName].map(c => 
-        `${c}(U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
-      ).join(' '));
-    }
-
-    const gameDir = path.dirname(gameExePath);
-    const exeName = path.basename(gameExePath);
-
-    // Generate content as UTF-8 string - will be converted to Windows-1251 when writing
-    let content = `@echo off\r\n`;
-    content += `chcp 1251\r\n`;  // Windows-1251 code page for Cyrillic
-    content += `REM Account: ${account.login}\r\n`;
-    content += `REM Character: ${characterName || 'Not specified'}\r\n`;
-    content += `REM Server: ${account.server || 'Default'}\r\n`;
-    content += `\r\n`;
-    
-    content += `cd /d "${gameDir}"\r\n`;
-    
-    // Use the reliable format: chcp 1251 + start "" elementclient.exe startbypatcher nocheck user:login pwd:password role:nickname rendernofocus
-    const params = [
-      'startbypatcher',
-      'nocheck',
-      `user:${account.login}`,
-      `pwd:${account.password}`
-    ];
-    
-    if (characterName) {
-      params.push(`role:${characterName}`);
-    }
-    
-    params.push('rendernofocus');
-    
-    content += `start "" "${exeName}" ${params.join(' ')}\r\n`;
-    content += `exit\r\n`;
-
-    console.log(`🔤 Generated batch content (before encoding conversion):`);
-    console.log(`🔤 Command line will be: start "" "${exeName}" ${params.join(' ')}`);
-    
-    return content;
-  }
-
-  // Test method to validate batch file format (can be removed in production)
-  private validateBatchFileFormat(content: string): boolean {
-    const requiredElements = [
-      '@echo off',
-      'chcp 1251',  // Windows-1251 for Cyrillic support
-      'cd /d',
-      'start ""',
-      'startbypatcher',
-      'nocheck',
-      'user:',
-      'pwd:',
-      'rendernofocus',
-      'exit'
-    ];
-    
-    return requiredElements.every(element => content.includes(element));
+  // Expose BAT file manager for external use
+  getBatFileManager(): BatFileManager {
+    return this.batFileManager;
   }
 
   async closeGame(accountId: string): Promise<void> {
@@ -1044,44 +920,6 @@ export class GameProcessManager extends EventEmitter {
     return this.processes.has(accountId);
   }
 
-  async createPermanentBatchFile(account: Account, gamePath: string | null | undefined): Promise<string> {
-    if (!gamePath) {
-      throw new Error('Game path is required to create batch file');
-    }
-    
-    try {
-      const gameExePath = await this.findElementClientPath(gamePath);
-      const gameDir = path.dirname(gameExePath);
-      
-      // Generate batch file content
-      const batchContent = this.generateBatchFile(account, gameExePath);
-      
-      // Validate batch file format
-      if (!this.validateBatchFileFormat(batchContent)) {
-        console.warn('Generated permanent batch file may have formatting issues');
-      }
-      
-      // Create filename based on account login (sanitize for filesystem)
-      // Remove or replace characters that are invalid in Windows filenames
-      const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-      const batchFileName = `pw_${sanitizedLogin}.bat`;
-      const batchFilePath = path.join(gameDir, batchFileName);
-      
-      // Write batch file with proper encoding conversion from UTF-8 to Windows-1251
-      console.log(`🔤 Writing permanent batch file for ${account.login}...`);
-      console.log(`🔤 Original content (UTF-8): Character name = "${account.characterName || 'none'}"`);
-      
-      // Convert UTF-8 content to Windows-1251 buffer using iconv-lite
-      const win1251Buffer = iconv.encode(batchContent, 'win1251');
-      await fs.writeFile(batchFilePath, win1251Buffer);
-      console.log(`✅ Permanent batch file written with UTF-8 to Windows-1251 conversion: ${batchFilePath}`);
-      
-      return batchFilePath;
-    } catch (error) {
-      console.error('Failed to create permanent batch file:', error);
-      throw error;
-    }
-  }
 
   updatePerformanceSettings(): void {
     // Update the intervals based on new settings

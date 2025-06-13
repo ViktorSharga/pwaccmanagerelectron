@@ -66,7 +66,7 @@ export function setupIpcHandlers() {
   // Setup logging handlers
   setupLoggingHandlers();
   
-  logger.info('Application started', { version: '1.1.2' }, 'MAIN');
+  logger.info('Application started', { version: '1.2.0' }, 'MAIN');
 
   ipcMain.handle('get-accounts', async () => {
     const accounts = await accountStorage.getAccounts();
@@ -316,6 +316,20 @@ export function setupIpcHandlers() {
       createBatchFiles,
       settings.gamePath
     );
+    
+    // Auto-create BAT files for imported accounts using PowerShell
+    if (result.savedAccounts.length > 0 && settings.gamePath) {
+      logger.info(`Creating BAT files for ${result.savedAccounts.length} imported accounts`, null, 'IMPORT');
+      
+      const batFileManager = gameProcessManager.getBatFileManager();
+      const batResult = await batFileManager.createBatFilesForAccounts(result.savedAccounts, settings.gamePath);
+      
+      logger.info(`BAT file creation results`, {
+        successful: batResult.success.length,
+        failed: batResult.failed.length,
+        failedAccounts: batResult.failed.map(f => ({ login: f.account.login, error: f.error }))
+      }, 'IMPORT');
+    }
     
     return { 
       success: true, 
