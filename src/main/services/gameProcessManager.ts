@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
+import * as iconv from 'iconv-lite';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
 
@@ -590,12 +591,14 @@ export class GameProcessManager extends EventEmitter {
         const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
         const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
         
-        // Write batch file with Windows-1251 encoding for reliable character support
+        // Write batch file with proper encoding conversion from UTF-8 to Windows-1251
         console.log(`🔤 Writing batch file for ${account.login}...`);
+        console.log(`🔤 Original content (UTF-8): Character name = "${account.characterName || 'none'}"`);
         
-        // Use Windows-1251 encoding for Russian character compatibility
-        await fs.writeFile(batPath, batContent, 'latin1');
-        console.log(`✅ Batch file written with Windows-1251 encoding: ${batPath}`);
+        // Convert UTF-8 content to Windows-1251 buffer using iconv-lite
+        const win1251Buffer = iconv.encode(batContent, 'win1251');
+        await fs.writeFile(batPath, win1251Buffer);
+        console.log(`✅ Batch file written with UTF-8 to Windows-1251 conversion: ${batPath}`);
 
         const gameDir = path.dirname(gameExePath);
         const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
@@ -769,13 +772,17 @@ export class GameProcessManager extends EventEmitter {
     const characterName = account.characterName || '';
     console.log(`🔤 Generating batch file for ${account.login}`);
     if (characterName) {
-      console.log(`🔤 Character name: "${characterName}"`);
+      console.log(`🔤 Character name (UTF-8): "${characterName}"`);
+      console.log(`🔤 Character name bytes:`, Buffer.from(characterName, 'utf8'));
+      console.log(`🔤 Character name char codes:`, [...characterName].map(c => 
+        `${c}(U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')})`
+      ).join(' '));
     }
 
     const gameDir = path.dirname(gameExePath);
     const exeName = path.basename(gameExePath);
 
-    // Use Windows-1251 code page for reliable Russian character support
+    // Generate content as UTF-8 string - will be converted to Windows-1251 when writing
     let content = `@echo off\r\n`;
     content += `chcp 1251\r\n`;  // Windows-1251 code page for Cyrillic
     content += `REM Account: ${account.login}\r\n`;
@@ -802,6 +809,9 @@ export class GameProcessManager extends EventEmitter {
     content += `start "" "${exeName}" ${params.join(' ')}\r\n`;
     content += `exit\r\n`;
 
+    console.log(`🔤 Generated batch content (before encoding conversion):`);
+    console.log(`🔤 Command line will be: start "" "${exeName}" ${params.join(' ')}`);
+    
     return content;
   }
 
@@ -1057,12 +1067,14 @@ export class GameProcessManager extends EventEmitter {
       const batchFileName = `pw_${sanitizedLogin}.bat`;
       const batchFilePath = path.join(gameDir, batchFileName);
       
-      // Write batch file with Windows-1251 encoding for reliable character support
+      // Write batch file with proper encoding conversion from UTF-8 to Windows-1251
       console.log(`🔤 Writing permanent batch file for ${account.login}...`);
+      console.log(`🔤 Original content (UTF-8): Character name = "${account.characterName || 'none'}"`);
       
-      // Use Windows-1251 encoding for Russian character compatibility
-      await fs.writeFile(batchFilePath, batchContent, 'latin1');
-      console.log(`✅ Permanent batch file written with Windows-1251 encoding: ${batchFilePath}`);
+      // Convert UTF-8 content to Windows-1251 buffer using iconv-lite
+      const win1251Buffer = iconv.encode(batchContent, 'win1251');
+      await fs.writeFile(batchFilePath, win1251Buffer);
+      console.log(`✅ Permanent batch file written with UTF-8 to Windows-1251 conversion: ${batchFilePath}`);
       
       return batchFilePath;
     } catch (error) {

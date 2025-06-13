@@ -66,7 +66,7 @@ export function setupIpcHandlers() {
   // Setup logging handlers
   setupLoggingHandlers();
   
-  logger.info('Application started', { version: '1.1.1' }, 'MAIN');
+  logger.info('Application started', { version: '1.1.2' }, 'MAIN');
 
   ipcMain.handle('get-accounts', async () => {
     const accounts = await accountStorage.getAccounts();

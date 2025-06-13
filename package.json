@@ -1,6 +1,6 @@
 {
   "name": "perfect-world-account-manager",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Account manager for Perfect World game with embedded WebView login",
   "main": "dist/main/main.js",
   "scripts": {
