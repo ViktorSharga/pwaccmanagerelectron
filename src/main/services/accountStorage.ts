@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account } from '../../shared/types';
 import { generateAccountId, validateAccount } from '../../shared/utils/validation';
+import { validateCharacterName, attemptEncodingFix } from '../../shared/utils/encoding';
 
 export class AccountStorage {
   private accountsPath: string;
@@ -226,11 +227,18 @@ export class AccountStorage {
           delete normalized.character_name;
         }
         
-        // Debug imported character names
+        // Debug and validate imported character names
         if (normalized.characterName) {
           console.log(`📥 Imported ${normalized.login} with character: "${normalized.characterName}"`);
-          if (normalized.characterName.includes('?')) {
-            console.error(`⚠️ Import: Character name already corrupted in source file!`);
+          
+          // Validate character name encoding
+          if (!validateCharacterName(normalized.characterName)) {
+            console.warn(`⚠️ Attempting to fix encoding for character: "${normalized.characterName}"`);
+            const fixed = attemptEncodingFix(normalized.characterName);
+            if (fixed !== normalized.characterName) {
+              normalized.characterName = fixed;
+              console.log(`✅ Fixed character name to: "${normalized.characterName}"`);
+            }
           }
         }
         

@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account } from '../../shared/types';
 import { generateAccountId } from '../../shared/utils/validation';
+import { readFileWithEncodingDetection } from '../../shared/utils/encoding';
 
 export class BatchFileScanner {
   private readonly MAX_SCAN_DEPTH = 5; // Limit recursion depth to prevent stack overflow
@@ -66,14 +67,8 @@ export class BatchFileScanner {
 
   private async parseBatchFile(filePath: string): Promise<Partial<Account> | null> {
     try {
-      let content = await fs.readFile(filePath, 'utf8');
-      
-      try {
-        const contentCP1251 = await fs.readFile(filePath, 'binary');
-        const iconv = await import('iconv-lite');
-        content = iconv.decode(Buffer.from(contentCP1251, 'binary'), 'cp1251');
-      } catch {
-      }
+      // Use the new encoding detection utility
+      const content = await readFileWithEncodingDetection(filePath);
 
       const account: Partial<Account> = {};
       
