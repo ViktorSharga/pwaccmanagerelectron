@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { spawn, ChildProcess, exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import * as fs from 'fs';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
 
@@ -532,8 +533,22 @@ export class GameProcessManager extends EventEmitter {
         const launchTime = new Date();
         
         // Build command arguments for direct game launch
+        logger.info(`Game path received: ${gamePath}`, { gamePath }, 'LAUNCH');
+        
         const gameDir = path.dirname(gamePath);
-        const exeName = path.basename(gamePath);
+        let exeName = path.basename(gamePath);
+        
+        logger.info(`Parsed game directory: ${gameDir}, executable: ${exeName}`, { 
+          gameDir, 
+          originalExeName: exeName 
+        }, 'LAUNCH');
+        
+        // Ensure we have the correct executable name
+        if (!exeName.toLowerCase().includes('.exe')) {
+          // If gamePath doesn't include .exe, assume it should be ElementClient.exe
+          exeName = 'ElementClient.exe';
+          logger.info(`Corrected executable name to: ${exeName}`, { exeName }, 'LAUNCH');
+        }
         
         const args = [
           '-startbypatcher',
@@ -556,10 +571,23 @@ export class GameProcessManager extends EventEmitter {
         
         args.push('-rendernofocus');
         
+        // Check if executable exists
+        const fullExePath = path.join(gameDir, exeName);
+        logger.info(`Full executable path: ${fullExePath}`, { fullExePath }, 'LAUNCH');
+        
+        try {
+          await fs.promises.access(fullExePath);
+          logger.info(`Executable exists, proceeding with launch`, null, 'LAUNCH');
+        } catch (accessError) {
+          logger.error(`Executable not found at: ${fullExePath}`, accessError, 'LAUNCH');
+          throw new Error(`Game executable not found: ${fullExePath}`);
+        }
+
         logger.info(`Launching game directly: ${exeName} ${args.join(' ')}`, {
           gameDir,
           args,
-          account: account.login
+          account: account.login,
+          fullPath: fullExePath
         }, 'LAUNCH');
 
         // Launch the game directly
