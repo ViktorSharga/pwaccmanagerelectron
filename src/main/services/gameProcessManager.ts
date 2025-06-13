@@ -535,20 +535,29 @@ export class GameProcessManager extends EventEmitter {
         // Build command arguments for direct game launch
         logger.info(`Game path received: ${gamePath}`, { gamePath }, 'LAUNCH');
         
-        const gameDir = path.dirname(gamePath);
-        let exeName = path.basename(gamePath);
+        let gameDir: string;
+        let exeName: string;
+        
+        // Handle different gamePath formats
+        if (gamePath.toLowerCase().endsWith('.exe')) {
+          // If gamePath includes .exe, use it as-is
+          gameDir = path.dirname(gamePath);
+          exeName = path.basename(gamePath);
+        } else if (gamePath.toLowerCase().endsWith('element')) {
+          // If path ends with 'element', it's likely meant to be ElementClient.exe
+          gameDir = path.dirname(gamePath);
+          exeName = 'ElementClient.exe';
+        } else {
+          // If gamePath doesn't end with .exe, treat it as directory and add ElementClient.exe
+          gameDir = gamePath;
+          exeName = 'ElementClient.exe';
+        }
         
         logger.info(`Parsed game directory: ${gameDir}, executable: ${exeName}`, { 
           gameDir, 
-          originalExeName: exeName 
+          originalExeName: path.basename(gamePath),
+          correctedExeName: exeName
         }, 'LAUNCH');
-        
-        // Ensure we have the correct executable name
-        if (!exeName.toLowerCase().includes('.exe')) {
-          // If gamePath doesn't include .exe, assume it should be ElementClient.exe
-          exeName = 'ElementClient.exe';
-          logger.info(`Corrected executable name to: ${exeName}`, { exeName }, 'LAUNCH');
-        }
         
         const args = [
           '-startbypatcher',
@@ -580,7 +589,17 @@ export class GameProcessManager extends EventEmitter {
           logger.info(`Executable exists, proceeding with launch`, null, 'LAUNCH');
         } catch (accessError) {
           logger.error(`Executable not found at: ${fullExePath}`, accessError, 'LAUNCH');
-          throw new Error(`Game executable not found: ${fullExePath}`);
+          
+          // Provide helpful error message with suggested paths
+          const suggestions = [
+            path.join(gameDir, 'ElementClient.exe'),
+            path.join(gameDir, 'element', 'ElementClient.exe'),
+            path.join(gameDir, '..', 'ElementClient.exe')
+          ];
+          
+          logger.info(`Suggested paths to check:`, { suggestions }, 'LAUNCH');
+          
+          throw new Error(`Game executable not found at: ${fullExePath}\n\nPlease check that your game path setting points to either:\n- The ElementClient.exe file directly\n- The game installation directory containing ElementClient.exe\n\nCurrent setting: ${gamePath}\nLooking for: ${fullExePath}`);
         }
 
         logger.info(`Launching game directly: ${exeName} ${args.join(' ')}`, {
