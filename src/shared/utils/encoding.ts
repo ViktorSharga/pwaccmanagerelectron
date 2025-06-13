@@ -15,7 +15,10 @@ export function detectEncodingCorruption(text: string): boolean {
   // Check for obvious corruption markers like question marks where Cyrillic should be
   const hasCorruptionMarkers = /\?{2,}/.test(text) || /[�]{2,}/.test(text);
   
-  return utf8DoubleEncoding || hasCorruptionMarkers;
+  // Check for CP1251 characters displayed in wrong encoding (like ëó÷íèê)
+  const cp1251Corruption = /[àáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ]{3,}/.test(text);
+  
+  return utf8DoubleEncoding || hasCorruptionMarkers || cp1251Corruption;
 }
 
 /**
@@ -83,25 +86,66 @@ export function validateCharacterName(characterName: string | undefined): boolea
 }
 
 /**
- * Attempts to fix common encoding corruption patterns
+ * Attempts to fix encoding corruption by trying different decoding approaches
  */
-export function attemptEncodingFix(text: string): string {
-  // This is a basic implementation - could be expanded with more patterns
-  let fixed = text;
+export async function attemptEncodingFix(text: string): Promise<string> {
+  if (!text) return text;
   
-  // Common UTF-8 to CP1251 corruption patterns for Cyrillic
-  const patterns = [
-    // These are example patterns - you'd need to map specific corruption cases
-    { corrupted: /╨╗╤â╤ç╨╜╨╕╨║/g, correct: 'лучник' },
-    { corrupted: /╤ç╨╝╨╛╨┤╨╗╤Å╨╖╨░╨┐╨░╨╗╨░/g, correct: 'смодлязапала' },
-  ];
-  
-  for (const pattern of patterns) {
-    if (pattern.corrupted.test(fixed)) {
-      fixed = fixed.replace(pattern.corrupted, pattern.correct);
-      console.log(`Applied encoding fix: "${text}" -> "${fixed}"`);
+  try {
+    const iconv = await import('iconv-lite');
+    
+    // Method 1: Try treating the corrupted text as CP1251 bytes interpreted as Latin-1
+    // This fixes cases like "ëó÷íèê" -> "лучник"
+    if (/[àáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ]/.test(text)) {
+      try {
+        // Convert the text to buffer assuming it's CP1251 bytes displayed as Latin-1
+        const buffer = Buffer.from(text, 'latin1');
+        const decoded = iconv.decode(buffer, 'cp1251');
+        
+        // Check if the result contains valid Cyrillic and no corruption markers
+        if (hasValidCyrillic(decoded) && !detectEncodingCorruption(decoded)) {
+          console.log(`Fixed CP1251 corruption: "${text}" -> "${decoded}"`);
+          return decoded;
+        }
+      } catch (error) {
+        console.warn('CP1251 fix attempt failed:', error);
+      }
     }
+    
+    // Method 2: Handle UTF-8 double encoding corruption
+    const patterns = [
+      { corrupted: /╨╗╤â╤ç╨╜╨╕╨║/g, correct: 'лучник' },
+      { corrupted: /╤ç╨╝╨╛╨┤╨╗╤Å╨╖╨░╨┐╨░╨╗╨░/g, correct: 'смодлязапала' },
+      // Add more specific patterns as needed
+    ];
+    
+    let fixed = text;
+    for (const pattern of patterns) {
+      if (pattern.corrupted.test(fixed)) {
+        fixed = fixed.replace(pattern.corrupted, pattern.correct);
+        console.log(`Applied UTF-8 pattern fix: "${text}" -> "${fixed}"`);
+        return fixed;
+      }
+    }
+    
+    // Method 3: Try direct iconv conversion if the text looks like mangled UTF-8
+    if (/[\u00C0-\u00FF]{2,}/.test(text)) {
+      try {
+        const buffer = Buffer.from(text, 'utf8');
+        const decoded = iconv.decode(buffer, 'cp1251');
+        
+        if (hasValidCyrillic(decoded)) {
+          console.log(`Fixed UTF-8 mangling: "${text}" -> "${decoded}"`);
+          return decoded;
+        }
+      } catch (error) {
+        console.warn('UTF-8 fix attempt failed:', error);
+      }
+    }
+    
+  } catch (error) {
+    console.warn('Encoding fix failed:', error);
   }
   
-  return fixed;
+  return text; // Return original if no fix worked
 }
