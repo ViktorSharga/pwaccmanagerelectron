@@ -536,18 +536,25 @@ export class GameProcessManager extends EventEmitter {
         const exeName = path.basename(gamePath);
         
         const args = [
-          'startbypatcher',
-          'nocheck',
-          `user:${account.login}`,
-          `pwd:${account.password}`
+          '-startbypatcher',
+          '-nocheck',
+          '-user', account.login,
+          '-pwd', account.password
         ];
         
-        // Add character name if present (without any encoding fixes for now)
+        // Add character name if present
         if (account.characterName && account.characterName.trim()) {
-          args.push(`role:${account.characterName}`);
+          args.push('-role', account.characterName);
         }
         
-        args.push('rendernofocus');
+        // Add server based on account server setting
+        if (account.server === 'Main') {
+          args.push('-server', 'main.asgard.pw');
+        } else if (account.server === 'X') {
+          args.push('-server', 'zbtx2.asgard.pw'); // Default to X-1 server
+        }
+        
+        args.push('-rendernofocus');
         
         logger.info(`Launching game directly: ${exeName} ${args.join(' ')}`, {
           gameDir,
