@@ -562,20 +562,20 @@ export class GameProcessManager extends EventEmitter {
         const args = [
           '-startbypatcher',
           '-nocheck',
-          '-user', account.login,
-          '-pwd', account.password
+          '-user', `"${account.login}"`,
+          '-pwd', `"${account.password}"`
         ];
         
         // Add character name if present
         if (account.characterName && account.characterName.trim()) {
-          args.push('-role', account.characterName);
+          args.push('-role', `"${account.characterName}"`);
         }
         
         // Add server based on account server setting
         if (account.server === 'Main') {
-          args.push('-server', 'main.asgard.pw');
+          args.push('-server', '"main.asgard.pw"');
         } else if (account.server === 'X') {
-          args.push('-server', 'zbtx2.asgard.pw'); // Default to X-1 server
+          args.push('-server', '"zbtx2.asgard.pw"'); // Default to X-1 server
         }
         
         args.push('-rendernofocus');
@@ -667,7 +667,7 @@ export class GameProcessManager extends EventEmitter {
     resolve: () => void, 
     _reject: (error: any) => void
   ): Promise<void> {
-    const maxAttempts = 5;
+    const maxAttempts = 10; // Increased from 5 to 10
     let attempts = 0;
     
     // Create set of existing PIDs to exclude
@@ -685,9 +685,10 @@ export class GameProcessManager extends EventEmitter {
         // Find processes that started after our launch time and aren't in existing PIDs
         const candidateProcesses = currentProcesses.filter(proc => {
           const isNew = !existingPids.has(proc.pid);
-          const startedAfterLaunch = proc.startTime >= launchTime;
+          const timeDiff = proc.startTime.getTime() - launchTime.getTime();
+          const startedAfterLaunch = timeDiff >= -2000; // Allow 2 second tolerance for time differences
           
-          console.log(`  📊 PID ${proc.pid}: new=${isNew}, startedAfter=${startedAfterLaunch} (started: ${proc.startTime.toLocaleTimeString()})`);
+          console.log(`  📊 PID ${proc.pid}: new=${isNew}, startedAfter=${startedAfterLaunch} (started: ${proc.startTime.toLocaleTimeString()}, diff: ${timeDiff}ms)`);
           
           return isNew && startedAfterLaunch;
         });
@@ -784,8 +785,8 @@ export class GameProcessManager extends EventEmitter {
       }
     };
     
-    // Start looking for the process after a delay to allow process startup
-    setTimeout(findProcess, 2000);
+    // Start looking for the process after a longer delay to allow ElementClient.exe to fully start
+    setTimeout(findProcess, 5000); // Increased from 2000 to 5000ms
   }
 
 
