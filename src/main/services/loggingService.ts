@@ -28,17 +28,12 @@ export interface LogFilter {
   searchText?: string;
 }
 
-export interface ActiveOperation {
-  id: string;
-  operation: string;
-  startTime: Date;
-}
-
 export class LoggingService extends EventEmitter {
   private static instance: LoggingService;
   private logs: LogEntry[] = [];
   private readonly maxLogsInMemory = 1000; // Circular buffer size
-  private activeOperations: Map<string, ActiveOperation> = new Map();
+  private currentOperation: string | null = null;
+  private operationTimer: NodeJS.Timeout | null = null;
   private logFile: string;
   private writeQueue: LogEntry[] = [];
   private isWriting = false;
@@ -190,95 +185,56 @@ export class LoggingService extends EventEmitter {
     this.log(LogLevel.ERROR, message, error, context);
   }
 
-  // Special method for status bar operations
-  startOperation(operation: string): string {
-    const operationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const activeOp: ActiveOperation = {
-      id: operationId,
-      operation,
-      startTime: new Date()
-    };
-    
-    this.activeOperations.set(operationId, activeOp);
-    this.log(LogLevel.OPERATION, operation, { operationId }, 'OPERATION_START');
-    
-    // Emit the most recent operation for status bar display
-    this.emitCurrentOperation();
-    
-    return operationId;
-  }
-
-  endOperation(operationIdOrSuccess?: string | boolean, success: boolean = true): void {
-    let operationId: string | undefined;
-    let operationSuccess: boolean = success;
-    
-    // Handle both old and new API
-    if (typeof operationIdOrSuccess === 'string') {
-      operationId = operationIdOrSuccess;
-      // success parameter is already set
-    } else if (typeof operationIdOrSuccess === 'boolean') {
-      // Old API: endOperation(success)
-      operationSuccess = operationIdOrSuccess;
-      // Find the most recent operation to end
-      const operations = Array.from(this.activeOperations.values());
-      if (operations.length > 0) {
-        const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
-        operationId = mostRecent.id;
-      }
-    } else {
-      // No parameters - end most recent operation
-      const operations = Array.from(this.activeOperations.values());
-      if (operations.length > 0) {
-        const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
-        operationId = mostRecent.id;
-      }
+  // Simple status bar operation management
+  startOperation(operation: string): void {
+    // Clear any existing timer
+    if (this.operationTimer) {
+      clearTimeout(this.operationTimer);
+      this.operationTimer = null;
     }
     
-    if (operationId && this.activeOperations.has(operationId)) {
-      const operation = this.activeOperations.get(operationId)!;
+    // Set the new operation (replaces whatever was there)
+    this.currentOperation = operation;
+    this.log(LogLevel.OPERATION, operation, null, 'OPERATION_START');
+    
+    // Immediately update status bar with new operation
+    this.emit('operation-changed', operation);
+    
+    // Set timer to clear status bar after 10 seconds
+    this.operationTimer = setTimeout(() => {
+      this.currentOperation = null;
+      this.emit('operation-changed', null);
+      this.operationTimer = null;
+    }, 10000); // 10 seconds
+  }
+
+  endOperation(success: boolean = true): void {
+    if (this.currentOperation) {
       this.log(
         LogLevel.OPERATION, 
-        `${operation.operation} ${operationSuccess ? 'completed' : 'failed'}`,
-        { operationId, duration: Date.now() - operation.startTime.getTime() },
+        `${this.currentOperation} ${success ? 'completed' : 'failed'}`,
+        null,
         'OPERATION_END'
       );
       
-      this.activeOperations.delete(operationId);
-      this.emitCurrentOperation();
-    }
-  }
-
-  private emitCurrentOperation(): void {
-    const operations = Array.from(this.activeOperations.values());
-    if (operations.length > 0) {
-      // Show the most recent operation
-      const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
-      const displayText = operations.length > 1 
-        ? `${mostRecent.operation} (+${operations.length - 1} more)`
-        : mostRecent.operation;
-      this.emit('operation-changed', displayText);
-    } else {
-      this.emit('operation-changed', null);
+      // Don't clear immediately - let the 10-second timer handle it
+      // This way user can see the completion status for a moment
     }
   }
 
   getCurrentOperation(): string | null {
-    const operations = Array.from(this.activeOperations.values());
-    if (operations.length > 0) {
-      const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
-      return operations.length > 1 
-        ? `${mostRecent.operation} (+${operations.length - 1} more)`
-        : mostRecent.operation;
+    return this.currentOperation;
+  }
+
+  // Force clear the status bar (for manual clearing if needed)
+  clearOperation(): void {
+    if (this.operationTimer) {
+      clearTimeout(this.operationTimer);
+      this.operationTimer = null;
     }
-    return null;
-  }
-
-  getActiveOperationsCount(): number {
-    return this.activeOperations.size;
-  }
-
-  getActiveOperations(): ActiveOperation[] {
-    return Array.from(this.activeOperations.values());
+    
+    this.currentOperation = null;
+    this.emit('operation-changed', null);
   }
 
   // Get logs with optional filtering
@@ -361,10 +317,15 @@ export class LoggingService extends EventEmitter {
   }
 
   destroy(): void {
+    if (this.operationTimer) {
+      clearTimeout(this.operationTimer);
+      this.operationTimer = null;
+    }
+    
     this.removeAllListeners();
     this.logs = [];
     this.writeQueue = [];
-    this.activeOperations.clear();
+    this.currentOperation = null;
   }
 }
 
