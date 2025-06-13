@@ -1,161 +1,128 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import * as fs from 'fs';
 import * as path from 'path';
-import * as fs from 'fs/promises';
-import * as os from 'os';
+import * as iconv from 'iconv-lite';
 import { app } from 'electron';
 import { Account } from '../../shared/types';
 import { logger } from './loggingService';
 
-const execAsync = promisify(exec);
-
 export class BatFileManager {
-  private tempDir: string;
-  private scriptPath: string;
+  private readonly scriptsDir: string;
+  private gamePath: string;
 
-  constructor() {
-    this.tempDir = path.join(os.tmpdir(), 'pw-account-manager');
-    // Get the PowerShell script from the app resources
-    this.scriptPath = path.join(app.getAppPath(), 'assets', 'scripts', 'create-bat.ps1');
+  constructor(gamePath: string) {
+    this.gamePath = gamePath;
+    this.scriptsDir = path.join(app.getPath('userData'), 'scripts');
+    this.ensureScriptsDirectory();
+  }
+
+  private ensureScriptsDirectory(): void {
+    if (!fs.existsSync(this.scriptsDir)) {
+      fs.mkdirSync(this.scriptsDir, { recursive: true });
+    }
   }
 
   /**
-   * Create a permanent BAT file using PowerShell for proper encoding
+   * Creates a BAT file with proper Windows-1251 encoding
    */
-  async createBatFile(account: Account, gamePath: string): Promise<string> {
-    logger.startOperation(`Creating BAT file for ${account.login}`);
-    
+  public createBatFile(account: Account): string {
+    const batFileName = `pw_${account.login}.bat`;
+    const batPath = path.join(this.scriptsDir, batFileName);
+
     try {
-      // Ensure temp directory exists
-      await fs.mkdir(this.tempDir, { recursive: true });
-
-      // Create a temporary JSON file with account data
-      const accountData = {
-        login: account.login,
-        password: account.password,
-        characterName: account.characterName || '',
-        server: account.server || 'Main'
-      };
-
-      const jsonPath = path.join(this.tempDir, `account_${account.id}_${Date.now()}.json`);
-      await fs.writeFile(jsonPath, JSON.stringify(accountData, null, 2), 'utf8');
-
-      // Find ElementClient.exe in the game path
-      const gameExePath = await this.findElementClientPath(gamePath);
-      const gameDir = path.dirname(gameExePath);
+      logger.startOperation(`Creating BAT file for ${account.login}`);
       
-      // Create BAT file path in game directory
-      const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-      const batFileName = `pw_${sanitizedLogin}.bat`;
-      const batFilePath = path.join(gameDir, batFileName);
-
-      // Build PowerShell command
-      const psCommand = [
-        'powershell.exe',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', `"${this.scriptPath}"`,
-        '-JsonPath', `"${jsonPath}"`,
-        '-GamePath', `"${gameExePath}"`,
-        '-OutputPath', `"${batFilePath}"`
-      ].join(' ');
-
-      logger.info(`Executing PowerShell command to create BAT file`, {
-        command: psCommand,
-        account: account.login,
-        character: account.characterName,
-        outputPath: batFilePath
+      // Build the batch file content
+      const batContent = this.buildBatContent(account);
+      
+      // Convert to Windows-1251 encoding
+      const buffer = iconv.encode(batContent, 'win1251');
+      
+      // Write the file
+      fs.writeFileSync(batPath, buffer);
+      
+      // Log success (for debugging)
+      logger.info(`Created BAT file: ${batPath}`, {
+        path: batPath,
+        size: buffer.length,
+        account: account.login
       }, 'BAT_CREATION');
-
-      // Execute PowerShell script
-      const { stdout, stderr } = await execAsync(psCommand, { 
-        timeout: 10000,
-        cwd: this.tempDir
-      });
-
-      if (stdout) {
-        console.log('PowerShell stdout:', stdout);
-        logger.info('PowerShell script output', { stdout }, 'BAT_CREATION');
-      }
-
-      if (stderr) {
-        console.warn('PowerShell stderr:', stderr);
-        logger.warn('PowerShell script warnings', { stderr }, 'BAT_CREATION');
-      }
-
-      // Verify the BAT file was created
-      try {
-        await fs.access(batFilePath);
-        const stats = await fs.stat(batFilePath);
-        logger.info(`BAT file created successfully`, {
-          path: batFilePath,
-          size: stats.size,
-          account: account.login
-        }, 'BAT_CREATION');
-      } catch (accessError) {
-        throw new Error(`BAT file was not created at ${batFilePath}`);
-      }
-
-      // Clean up temporary JSON file
-      await fs.unlink(jsonPath).catch(() => {});
-
+      
       logger.endOperation(true);
-      return batFilePath;
-
-    } catch (error) {
+      return batPath;
+    } catch (error: any) {
       logger.error(`Failed to create BAT file for ${account.login}`, error, 'BAT_CREATION');
       logger.endOperation(false);
-      throw error;
+      throw new Error(`Failed to create BAT file: ${error.message}`);
     }
   }
 
   /**
-   * Check if BAT file exists for an account
+   * Builds the BAT file content
    */
-  async batFileExists(account: Account, gamePath: string): Promise<string | null> {
-    try {
-      const gameExePath = await this.findElementClientPath(gamePath);
-      const gameDir = path.dirname(gameExePath);
-      
-      const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-      const batFileName = `pw_${sanitizedLogin}.bat`;
-      const batFilePath = path.join(gameDir, batFileName);
-
-      try {
-        await fs.access(batFilePath);
-        return batFilePath;
-      } catch {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Ensure BAT file exists, create if missing
-   */
-  async ensureBatFile(account: Account, gamePath: string): Promise<string> {
-    const existingBatFile = await this.batFileExists(account, gamePath);
+  private buildBatContent(account: Account): string {
+    const gameDir = path.dirname(this.gamePath);
+    const exeName = path.basename(this.gamePath);
     
-    if (existingBatFile) {
-      logger.info(`Using existing BAT file for ${account.login}`, { path: existingBatFile }, 'BAT_CREATION');
-      return existingBatFile;
+    // Build command parameters
+    const params = [
+      'startbypatcher',
+      'nocheck',
+      `user:${account.login}`,
+      `pwd:${account.password}`
+    ];
+    
+    // Add character name if present
+    if (account.characterName && account.characterName.trim()) {
+      params.push(`role:${account.characterName}`);
     }
+    
+    params.push('rendernofocus');
+    
+    // Build the complete BAT file content
+    const batContent = `@echo off
+chcp 1251
+REM Account: ${account.login}
+REM Character: ${account.characterName || 'None'}
+REM Server: ${account.server || 'Unknown'}
 
-    logger.info(`BAT file missing for ${account.login}, creating new one`, null, 'BAT_CREATION');
-    return await this.createBatFile(account, gamePath);
+cd /d "${gameDir}"
+start "" "${exeName}" ${params.join(' ')}
+exit
+`;
+    
+    return batContent;
   }
 
   /**
-   * Create BAT files for multiple accounts (used during import)
+   * Ensures a BAT file exists for the account, creates if missing
    */
-  async createBatFilesForAccounts(accounts: Account[], gamePath: string): Promise<{success: string[], failed: Array<{account: Account, error: string}>}> {
+  public ensureBatFile(account: Account): string {
+    const batFileName = `pw_${account.login}.bat`;
+    const batPath = path.join(this.scriptsDir, batFileName);
+    
+    if (!fs.existsSync(batPath)) {
+      return this.createBatFile(account);
+    }
+    
+    logger.info(`Using existing BAT file for ${account.login}`, { path: batPath }, 'BAT_CREATION');
+    return batPath;
+  }
+
+  /**
+   * Creates BAT files for multiple accounts (used during import)
+   */
+  public async createBatFilesForAccounts(accounts: Account[], gamePath?: string): Promise<{success: string[], failed: Array<{account: Account, error: string}>}> {
+    // Update game path if provided
+    if (gamePath) {
+      this.gamePath = gamePath;
+    }
+    
     const success: string[] = [];
     const failed: Array<{account: Account, error: string}> = [];
-
+    
     for (const account of accounts) {
       try {
-        const batPath = await this.createBatFile(account, gamePath);
+        const batPath = this.createBatFile(account);
         success.push(batPath);
         logger.info(`Created BAT file for imported account ${account.login}`, { path: batPath }, 'IMPORT');
       } catch (error: any) {
@@ -163,8 +130,53 @@ export class BatFileManager {
         logger.error(`Failed to create BAT file for imported account ${account.login}`, error, 'IMPORT');
       }
     }
-
+    
     return { success, failed };
+  }
+
+  /**
+   * Deletes a BAT file for an account
+   */
+  public deleteBatFile(login: string): boolean {
+    const batFileName = `pw_${login}.bat`;
+    const batPath = path.join(this.scriptsDir, batFileName);
+    
+    try {
+      if (fs.existsSync(batPath)) {
+        fs.unlinkSync(batPath);
+        logger.info(`Deleted BAT file for ${login}`, { path: batPath }, 'CLEANUP');
+        return true;
+      }
+      return false;
+    } catch (error: any) {
+      logger.error(`Failed to delete BAT file for ${login}`, error, 'CLEANUP');
+      return false;
+    }
+  }
+
+  /**
+   * Debug function to verify encoding
+   */
+  public debugBatFile(account: Account): void {
+    const batPath = this.ensureBatFile(account);
+    const buffer = fs.readFileSync(batPath);
+    
+    console.log('=== BAT File Debug Info ===');
+    console.log('Account:', account.login);
+    console.log('Character:', account.characterName);
+    console.log('File path:', batPath);
+    console.log('File size:', buffer.length, 'bytes');
+    
+    // Show first 200 bytes as hex
+    const hexView = Array.from(buffer.slice(0, 200))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    console.log('First 200 bytes (hex):', hexView);
+    
+    // Try to decode back to verify
+    const decodedContent = iconv.decode(buffer, 'win1251');
+    console.log('Decoded content preview:', decodedContent.substring(0, 200));
+    console.log('=========================');
   }
 
   /**
@@ -180,7 +192,7 @@ export class BatFileManager {
       
       for (const checkPath of possiblePaths) {
         try {
-          const files = await fs.readdir(checkPath);
+          const files = await fs.promises.readdir(checkPath);
           const executableName = files.find(file => {
             const lowerFile = file.toLowerCase();
             return lowerFile === 'elementclient.exe' ||
@@ -191,7 +203,7 @@ export class BatFileManager {
           
           if (executableName) {
             const fullPath = path.join(checkPath, executableName);
-            const stats = await fs.stat(fullPath);
+            const stats = await fs.promises.stat(fullPath);
             if (stats.isFile()) {
               return fullPath;
             }
@@ -211,12 +223,9 @@ export class BatFileManager {
   /**
    * Clean up old BAT files (optional maintenance)
    */
-  async cleanupOldBatFiles(gamePath: string, validAccountLogins: string[]): Promise<void> {
+  async cleanupOldBatFiles(validAccountLogins: string[]): Promise<void> {
     try {
-      const gameExePath = await this.findElementClientPath(gamePath);
-      const gameDir = path.dirname(gameExePath);
-      
-      const files = await fs.readdir(gameDir);
+      const files = await fs.promises.readdir(this.scriptsDir);
       const batFiles = files.filter(file => 
         file.toLowerCase().startsWith('pw_') && 
         file.toLowerCase().endsWith('.bat')
@@ -226,17 +235,14 @@ export class BatFileManager {
         // Extract login from filename: pw_login.bat
         const loginMatch = batFile.match(/^pw_(.+)\.bat$/i);
         if (loginMatch) {
-          const fileLogin = loginMatch[1].replace(/_/g, ' '); // Reverse sanitization
+          const fileLogin = loginMatch[1];
           
           // Check if this login still exists in valid accounts
-          const isValid = validAccountLogins.some(login => {
-            const sanitized = login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
-            return sanitized === loginMatch[1];
-          });
+          const isValid = validAccountLogins.includes(fileLogin);
 
           if (!isValid) {
-            const fullPath = path.join(gameDir, batFile);
-            await fs.unlink(fullPath);
+            const fullPath = path.join(this.scriptsDir, batFile);
+            await fs.promises.unlink(fullPath);
             logger.info(`Cleaned up orphaned BAT file: ${batFile}`, null, 'CLEANUP');
           }
         }

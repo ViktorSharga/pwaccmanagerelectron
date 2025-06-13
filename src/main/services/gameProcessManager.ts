@@ -18,10 +18,10 @@ export class GameProcessManager extends EventEmitter {
   private accountLaunchData: Map<string, {account: Account, gamePath: string}> = new Map(); // Store launch data for restarts
   private batFileManager: BatFileManager;
 
-  constructor(settingsManager?: any) {
+  constructor(settingsManager?: any, gamePath?: string) {
     super();
     this.settingsManager = settingsManager;
-    this.batFileManager = new BatFileManager();
+    this.batFileManager = new BatFileManager(gamePath || '');
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     logger.info('GameProcessManager initialized - monitoring disabled for performance', null, 'PROCESS_MANAGER');
@@ -534,8 +534,8 @@ export class GameProcessManager extends EventEmitter {
         // Record launch time for reliable new process detection
         const launchTime = new Date();
         
-        // Ensure BAT file exists (create if missing using PowerShell)
-        const batPath = await this.batFileManager.ensureBatFile(account, gamePath);
+        // Ensure BAT file exists (create if missing using iconv encoding)
+        const batPath = this.batFileManager.ensureBatFile(account);
         logger.info(`Using BAT file for launch: ${batPath}`, null, 'LAUNCH');
 
         // Launch using the permanent BAT file

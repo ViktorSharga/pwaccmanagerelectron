@@ -87,7 +87,28 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('delete-account', async (_, id: string) => {
-    return await accountStorage.deleteAccount(id);
+    // First, get the account to find the login before deleting
+    const accounts = await accountStorage.getAccounts();
+    const accountToDelete = accounts.find(account => account.id === id);
+    
+    if (!accountToDelete) {
+      throw new Error('Account not found');
+    }
+    
+    // Delete the account from storage
+    await accountStorage.deleteAccount(id);
+    
+    // Clean up the associated BAT file
+    const batFileManager = gameProcessManager.getBatFileManager();
+    const batDeleted = batFileManager.deleteBatFile(accountToDelete.login);
+    
+    logger.info(`Account deleted: ${accountToDelete.login}`, {
+      accountId: id,
+      login: accountToDelete.login,
+      batFileDeleted: batDeleted
+    }, 'ACCOUNT_DELETION');
+    
+    return { success: true, batFileDeleted: batDeleted };
   });
 
   ipcMain.handle('delete-batch-file', async (_, filePath: string) => {
