@@ -2,7 +2,6 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account } from '../../shared/types';
 import { generateAccountId } from '../../shared/utils/validation';
-import { readFileWithEncodingDetection } from '../../shared/utils/encoding';
 
 export class BatchFileScanner {
   private readonly MAX_SCAN_DEPTH = 5; // Limit recursion depth to prevent stack overflow
@@ -67,8 +66,8 @@ export class BatchFileScanner {
 
   private async parseBatchFile(filePath: string): Promise<Partial<Account> | null> {
     try {
-      // Use the new encoding detection utility
-      const content = await readFileWithEncodingDetection(filePath);
+      // Read as UTF-8 first
+      let content = await fs.readFile(filePath, 'utf8');
 
       const account: Partial<Account> = {};
       

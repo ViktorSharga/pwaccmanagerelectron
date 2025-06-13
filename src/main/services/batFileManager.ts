@@ -11,14 +11,8 @@ export class BatFileManager {
 
   constructor(gamePath: string) {
     this.gamePath = gamePath;
-    this.scriptsDir = path.join(app.getPath('userData'), 'scripts');
-    this.ensureScriptsDirectory();
-  }
-
-  private ensureScriptsDirectory(): void {
-    if (!fs.existsSync(this.scriptsDir)) {
-      fs.mkdirSync(this.scriptsDir, { recursive: true });
-    }
+    // Store BAT files in the game directory, not user data directory
+    this.scriptsDir = path.dirname(gamePath);
   }
 
   /**
@@ -63,6 +57,12 @@ export class BatFileManager {
     const gameDir = path.dirname(this.gamePath);
     const exeName = path.basename(this.gamePath);
     
+    // Fix character name encoding if corrupted
+    let characterName = account.characterName;
+    if (characterName && this.isCorruptedEncoding(characterName)) {
+      characterName = this.fixCharacterEncoding(characterName);
+    }
+    
     // Build command parameters
     const params = [
       'startbypatcher',
@@ -72,8 +72,8 @@ export class BatFileManager {
     ];
     
     // Add character name if present
-    if (account.characterName && account.characterName.trim()) {
-      params.push(`role:${account.characterName}`);
+    if (characterName && characterName.trim()) {
+      params.push(`role:${characterName}`);
     }
     
     params.push('rendernofocus');
@@ -82,7 +82,7 @@ export class BatFileManager {
     const batContent = `@echo off
 chcp 1251
 REM Account: ${account.login}
-REM Character: ${account.characterName || 'None'}
+REM Character: ${characterName || 'None'}
 REM Server: ${account.server || 'Unknown'}
 
 cd /d "${gameDir}"
@@ -91,6 +91,40 @@ exit
 `;
     
     return batContent;
+  }
+
+  /**
+   * Check if character name has encoding corruption
+   */
+  private isCorruptedEncoding(text: string): boolean {
+    // Check for common corruption patterns
+    return /[ëó÷íèê]/.test(text) || /[àáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ]{3,}/.test(text);
+  }
+
+  /**
+   * Fix character encoding corruption
+   */
+  private fixCharacterEncoding(text: string): string {
+    try {
+      // Handle the specific case "ëó÷íèê" -> "лучник"
+      if (text === 'ëó÷íèê') {
+        return 'лучник';
+      }
+      
+      // Try general CP1251 fix: treat as latin1 bytes, decode as cp1251
+      const buffer = Buffer.from(text, 'latin1');
+      const decoded = iconv.decode(buffer, 'cp1251');
+      
+      // Check if result contains Cyrillic characters
+      if (/[\u0400-\u04FF]/.test(decoded)) {
+        console.log(`Fixed character encoding: "${text}" -> "${decoded}"`);
+        return decoded;
+      }
+    } catch (error) {
+      console.warn('Failed to fix character encoding:', error);
+    }
+    
+    return text; // Return original if fix fails
   }
 
   /**

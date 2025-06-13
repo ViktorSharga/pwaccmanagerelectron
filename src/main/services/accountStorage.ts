@@ -3,7 +3,6 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account } from '../../shared/types';
 import { generateAccountId, validateAccount } from '../../shared/utils/validation';
-import { validateCharacterName, attemptEncodingFix } from '../../shared/utils/encoding';
 
 export class AccountStorage {
   private accountsPath: string;
@@ -106,21 +105,6 @@ export class AccountStorage {
   }
 
   async saveAccount(account: Partial<Account>): Promise<Account> {
-    // Fix encoding issues if needed
-    if ((account as any)._needsEncodingFix && account.characterName) {
-      console.log(`🔧 Attempting to fix encoding for ${account.login}: "${account.characterName}"`);
-      try {
-        const fixed = await attemptEncodingFix(account.characterName);
-        if (fixed !== account.characterName) {
-          account.characterName = fixed;
-          console.log(`✅ Fixed character name to: "${account.characterName}"`);
-        }
-        delete (account as any)._needsEncodingFix;
-      } catch (error) {
-        console.warn(`Failed to fix encoding for ${account.login}:`, error);
-      }
-    }
-    
     // Debug incoming account data
     if (account.characterName) {
       console.log(`📝 saveAccount: Saving ${account.login} with character: "${account.characterName}"`);
@@ -242,15 +226,11 @@ export class AccountStorage {
           delete normalized.character_name;
         }
         
-        // Debug and validate imported character names
+        // Debug imported character names
         if (normalized.characterName) {
           console.log(`📥 Imported ${normalized.login} with character: "${normalized.characterName}"`);
-          
-          // Validate character name encoding
-          if (!validateCharacterName(normalized.characterName)) {
-            console.warn(`⚠️ Attempting to fix encoding for character: "${normalized.characterName}"`);
-            // Note: We'll fix this during save rather than here to keep this function sync
-            normalized._needsEncodingFix = true;
+          if (normalized.characterName.includes('?')) {
+            console.error(`⚠️ Import: Character name already corrupted in source file!`);
           }
         }
         
