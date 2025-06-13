@@ -6,9 +6,9 @@ class PerfectWorldAccountManager {
     this.selectedAccountIds = new Set();
     this.runningProcesses = new Map(); // Map accountId -> processInfo
     this.recentErrors = [];
-    this.currentOperation = null;
     this.logs = [];
     this.activeTab = 'general'; // For settings dialog tabs
+    this.operationTimer = null; // Timer for status bar auto-clear
     
     this.initialize();
   }
@@ -137,8 +137,7 @@ class PerfectWorldAccountManager {
     
     window.electronAPI.on('operation-changed', (_, operation) => {
       console.log(`📥 Received operation-changed: "${operation}"`);
-      this.currentOperation = operation;
-      this.updateOperationStatus();
+      this.showOperationStatus(operation);
     });
     
     window.electronAPI.on('logs-cleared', () => {
@@ -1424,25 +1423,39 @@ class PerfectWorldAccountManager {
     return div.innerHTML;
   }
 
-  // Status bar and logging methods
-  updateOperationStatus() {
-    console.log(`🖼️ updateOperationStatus called with: "${this.currentOperation}"`);
+  // Simple status bar operation display
+  showOperationStatus(operation) {
+    console.log(`🖼️ showOperationStatus called with: "${operation}"`);
     
     const operationStatus = document.getElementById('operation-status');
-    const operationText = document.getElementById('operation-text');
     
-    if (!operationStatus || !operationText) {
-      console.log(`❌ Status bar elements not found: operationStatus=${!!operationStatus}, operationText=${!!operationText}`);
+    if (!operationStatus) {
+      console.log(`❌ Status bar element not found`);
       return;
     }
     
-    if (this.currentOperation) {
-      console.log(`🔄 Showing operation: "${this.currentOperation}"`);
+    // Clear any existing timer
+    if (this.operationTimer) {
+      clearTimeout(this.operationTimer);
+      this.operationTimer = null;
+    }
+    
+    if (operation) {
+      console.log(`🔄 Showing operation: "${operation}"`);
       operationStatus.classList.remove('idle');
       operationStatus.innerHTML = `
         <div class="operation-spinner"></div>
-        <span>${this.escapeHtml(this.currentOperation)}</span>
+        <span>${this.escapeHtml(operation)}</span>
       `;
+      
+      // Set timer to clear after 10 seconds
+      console.log(`⏰ Setting 10-second auto-clear timer`);
+      this.operationTimer = setTimeout(() => {
+        console.log(`⏰ 10-second timer expired - clearing status bar`);
+        operationStatus.classList.add('idle');
+        operationStatus.innerHTML = '<span>Ready</span>';
+        this.operationTimer = null;
+      }, 10000);
     } else {
       console.log(`✅ Clearing status bar to Ready`);
       operationStatus.classList.add('idle');
@@ -1464,15 +1477,6 @@ class PerfectWorldAccountManager {
     }
   }
   
-  async startOperation(operation) {
-    this.currentOperation = operation;
-    this.updateOperationStatus();
-  }
-  
-  async endOperation() {
-    this.currentOperation = null;
-    this.updateOperationStatus();
-  }
   
   // Log rendering methods
   renderLogs() {

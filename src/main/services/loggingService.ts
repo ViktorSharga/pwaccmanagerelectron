@@ -33,7 +33,6 @@ export class LoggingService extends EventEmitter {
   private logs: LogEntry[] = [];
   private readonly maxLogsInMemory = 1000; // Circular buffer size
   private currentOperation: string | null = null;
-  private operationTimer: NodeJS.Timeout | null = null;
   private logFile: string;
   private writeQueue: LogEntry[] = [];
   private isWriting = false;
@@ -189,29 +188,13 @@ export class LoggingService extends EventEmitter {
   startOperation(operation: string): void {
     console.log(`🚀 LoggingService.startOperation("${operation}")`);
     
-    // Clear any existing timer
-    if (this.operationTimer) {
-      console.log(`⏰ Clearing existing timer`);
-      clearTimeout(this.operationTimer);
-      this.operationTimer = null;
-    }
-    
-    // Set the new operation (replaces whatever was there)
+    // Set the new operation and log it
     this.currentOperation = operation;
     this.log(LogLevel.OPERATION, operation, null, 'OPERATION_START');
     
-    // Immediately update status bar with new operation
+    // Emit to renderer - renderer will handle timer logic
     console.log(`📡 Emitting operation-changed: "${operation}"`);
     this.emit('operation-changed', operation);
-    
-    // Set timer to clear status bar after 10 seconds
-    console.log(`⏰ Setting 10-second auto-clear timer`);
-    this.operationTimer = setTimeout(() => {
-      console.log(`⏰ 10-second timer expired - clearing status bar`);
-      this.currentOperation = null;
-      this.emit('operation-changed', null);
-      this.operationTimer = null;
-    }, 10000); // 10 seconds
   }
 
   endOperation(success: boolean = true): void {
@@ -222,9 +205,7 @@ export class LoggingService extends EventEmitter {
         null,
         'OPERATION_END'
       );
-      
-      // Don't clear immediately - let the 10-second timer handle it
-      // This way user can see the completion status for a moment
+      this.currentOperation = null;
     }
   }
 
@@ -234,11 +215,6 @@ export class LoggingService extends EventEmitter {
 
   // Force clear the status bar (for manual clearing if needed)
   clearOperation(): void {
-    if (this.operationTimer) {
-      clearTimeout(this.operationTimer);
-      this.operationTimer = null;
-    }
-    
     this.currentOperation = null;
     this.emit('operation-changed', null);
   }
@@ -323,11 +299,6 @@ export class LoggingService extends EventEmitter {
   }
 
   destroy(): void {
-    if (this.operationTimer) {
-      clearTimeout(this.operationTimer);
-      this.operationTimer = null;
-    }
-    
     this.removeAllListeners();
     this.logs = [];
     this.writeQueue = [];
