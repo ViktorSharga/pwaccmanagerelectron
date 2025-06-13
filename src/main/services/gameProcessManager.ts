@@ -560,7 +560,7 @@ export class GameProcessManager extends EventEmitter {
   }
 
   async launchGame(account: Account, gamePath: string): Promise<void> {
-    logger.startOperation(`Launching ${account.login}`);
+    const operationId = logger.startOperation(`Launching ${account.login}`);
     
     return new Promise(async (resolve, reject) => {
       try {
@@ -632,10 +632,10 @@ export class GameProcessManager extends EventEmitter {
         setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
         
         // Wait and find the new ElementClient.exe process - resolve when PID is found
-        this.findNewElementClientProcess(account, existingProcesses, launchTime, resolve, reject);
+        this.findNewElementClientProcess(account, existingProcesses, launchTime, operationId, resolve, reject);
       } catch (error) {
         logger.error(`Failed to launch game for ${account.login}`, error, 'LAUNCH');
-        logger.endOperation(false);
+        logger.endOperation(operationId, false);
         reject(error);
       }
     });
@@ -645,6 +645,7 @@ export class GameProcessManager extends EventEmitter {
     account: Account, 
     existingProcesses: Array<{pid: number, startTime: Date}>, 
     launchTime: Date,
+    operationId: string,
     resolve: () => void, 
     _reject: (error: any) => void
   ): Promise<void> {
@@ -715,7 +716,7 @@ export class GameProcessManager extends EventEmitter {
           this.startOptionalCrashDetection();
           
           // Resolve the Promise - PID found successfully
-          logger.endOperation(true);
+          logger.endOperation(operationId, true);
           resolve();
           return;
         }
@@ -740,7 +741,7 @@ export class GameProcessManager extends EventEmitter {
           this.startOptionalCrashDetection();
           
           // Resolve - launch is considered complete even with unknown PID
-          logger.endOperation(true);
+          logger.endOperation(operationId, true);
           resolve();
         }
       } catch (error) {
@@ -759,7 +760,7 @@ export class GameProcessManager extends EventEmitter {
           this.startOptionalCrashDetection();
           
           // Resolve even with fallback - launch is complete
-          logger.endOperation(true);
+          logger.endOperation(operationId, true);
           resolve();
         }
       }
@@ -835,7 +836,7 @@ export class GameProcessManager extends EventEmitter {
       return;
     }
 
-    logger.startOperation(`Closing ${processInfo.login}`);
+    const operationId = logger.startOperation(`Closing ${processInfo.login}`);
     logger.info(`Found process for ${processInfo.login}`, {
       accountId,
       pid: processInfo.pid,
@@ -901,7 +902,7 @@ export class GameProcessManager extends EventEmitter {
         }
         
         console.log(`✅ Marked ${processInfo.login} as stopped`);
-        logger.endOperation(true);
+        logger.endOperation(operationId, true);
         return;
       } else {
         // Handle processes with known PID - ONLY kill the specific PID
@@ -925,7 +926,7 @@ export class GameProcessManager extends EventEmitter {
               this.processes.delete(accountId);
               this.emit('status-update', accountId, false);
               this.accountLaunchData.delete(accountId);
-              logger.endOperation(true);
+              logger.endOperation(operationId, true);
               return;
             }
             
@@ -963,7 +964,7 @@ export class GameProcessManager extends EventEmitter {
       }
       
       logger.info(`Successfully closed process for account ${processInfo.login}`, { accountId, pid: processInfo.pid }, 'CLOSE');
-      logger.endOperation(true);
+      logger.endOperation(operationId, true);
     } catch (error) {
       logger.error(`Failed to close game process for ${processInfo.login}`, error, 'CLOSE');
       
@@ -977,13 +978,13 @@ export class GameProcessManager extends EventEmitter {
         this.stopCrashDetection();
       }
       
-      logger.endOperation(false);
+      logger.endOperation(operationId, false);
     }
   }
 
   async closeMultipleGames(accountIds: string[]): Promise<void> {
     console.log(`🔄 closeMultipleGames called with accountIds: [${accountIds.join(', ')}]`);
-    logger.startOperation(`Closing ${accountIds.length} selected accounts`);
+    const operationId = logger.startOperation(`Closing ${accountIds.length} selected accounts`);
     
     for (const accountId of accountIds) {
       const processInfo = this.processes.get(accountId);
@@ -1019,7 +1020,7 @@ export class GameProcessManager extends EventEmitter {
       failed: failureCount
     }, 'CLOSE');
     
-    logger.endOperation(failureCount === 0);
+    logger.endOperation(operationId, failureCount === 0);
   }
 
   async closeAllGames(): Promise<void> {

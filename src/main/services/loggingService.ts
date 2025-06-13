@@ -28,11 +28,17 @@ export interface LogFilter {
   searchText?: string;
 }
 
+export interface ActiveOperation {
+  id: string;
+  operation: string;
+  startTime: Date;
+}
+
 export class LoggingService extends EventEmitter {
   private static instance: LoggingService;
   private logs: LogEntry[] = [];
   private readonly maxLogsInMemory = 1000; // Circular buffer size
-  private currentOperation: string | null = null;
+  private activeOperations: Map<string, ActiveOperation> = new Map();
   private logFile: string;
   private writeQueue: LogEntry[] = [];
   private isWriting = false;
@@ -185,27 +191,94 @@ export class LoggingService extends EventEmitter {
   }
 
   // Special method for status bar operations
-  startOperation(operation: string): void {
-    this.currentOperation = operation;
-    this.log(LogLevel.OPERATION, operation, null, 'OPERATION_START');
-    this.emit('operation-changed', operation);
+  startOperation(operation: string): string {
+    const operationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const activeOp: ActiveOperation = {
+      id: operationId,
+      operation,
+      startTime: new Date()
+    };
+    
+    this.activeOperations.set(operationId, activeOp);
+    this.log(LogLevel.OPERATION, operation, { operationId }, 'OPERATION_START');
+    
+    // Emit the most recent operation for status bar display
+    this.emitCurrentOperation();
+    
+    return operationId;
   }
 
-  endOperation(success: boolean = true): void {
-    if (this.currentOperation) {
+  endOperation(operationIdOrSuccess?: string | boolean, success: boolean = true): void {
+    let operationId: string | undefined;
+    let operationSuccess: boolean = success;
+    
+    // Handle both old and new API
+    if (typeof operationIdOrSuccess === 'string') {
+      operationId = operationIdOrSuccess;
+      // success parameter is already set
+    } else if (typeof operationIdOrSuccess === 'boolean') {
+      // Old API: endOperation(success)
+      operationSuccess = operationIdOrSuccess;
+      // Find the most recent operation to end
+      const operations = Array.from(this.activeOperations.values());
+      if (operations.length > 0) {
+        const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
+        operationId = mostRecent.id;
+      }
+    } else {
+      // No parameters - end most recent operation
+      const operations = Array.from(this.activeOperations.values());
+      if (operations.length > 0) {
+        const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
+        operationId = mostRecent.id;
+      }
+    }
+    
+    if (operationId && this.activeOperations.has(operationId)) {
+      const operation = this.activeOperations.get(operationId)!;
       this.log(
         LogLevel.OPERATION, 
-        `${this.currentOperation} ${success ? 'completed' : 'failed'}`,
-        null,
+        `${operation.operation} ${operationSuccess ? 'completed' : 'failed'}`,
+        { operationId, duration: Date.now() - operation.startTime.getTime() },
         'OPERATION_END'
       );
-      this.currentOperation = null;
+      
+      this.activeOperations.delete(operationId);
+      this.emitCurrentOperation();
+    }
+  }
+
+  private emitCurrentOperation(): void {
+    const operations = Array.from(this.activeOperations.values());
+    if (operations.length > 0) {
+      // Show the most recent operation
+      const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
+      const displayText = operations.length > 1 
+        ? `${mostRecent.operation} (+${operations.length - 1} more)`
+        : mostRecent.operation;
+      this.emit('operation-changed', displayText);
+    } else {
       this.emit('operation-changed', null);
     }
   }
 
   getCurrentOperation(): string | null {
-    return this.currentOperation;
+    const operations = Array.from(this.activeOperations.values());
+    if (operations.length > 0) {
+      const mostRecent = operations.sort((a, b) => b.startTime.getTime() - a.startTime.getTime())[0];
+      return operations.length > 1 
+        ? `${mostRecent.operation} (+${operations.length - 1} more)`
+        : mostRecent.operation;
+    }
+    return null;
+  }
+
+  getActiveOperationsCount(): number {
+    return this.activeOperations.size;
+  }
+
+  getActiveOperations(): ActiveOperation[] {
+    return Array.from(this.activeOperations.values());
   }
 
   // Get logs with optional filtering
@@ -291,6 +364,7 @@ export class LoggingService extends EventEmitter {
     this.removeAllListeners();
     this.logs = [];
     this.writeQueue = [];
+    this.activeOperations.clear();
   }
 }
 
