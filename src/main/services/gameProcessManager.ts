@@ -590,16 +590,12 @@ export class GameProcessManager extends EventEmitter {
         const sanitizedLogin = account.login.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
         const batPath = path.join(tempDir, `${sanitizedLogin}_${Date.now()}.bat`);
         
-        // Write batch file with UTF-8 encoding (always use UTF-8 with BOM)
+        // Write batch file with Windows-1251 encoding for reliable character support
         console.log(`🔤 Writing batch file for ${account.login}...`);
         
-        // ALWAYS use UTF-8 with BOM for batch files
-        const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-        const contentBuffer = Buffer.from(batContent, 'utf8');
-        const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
-        
-        await fs.writeFile(batPath, finalBuffer);
-        console.log(`✅ Batch file written with UTF-8 encoding: ${batPath}`);
+        // Use Windows-1251 encoding for Russian character compatibility
+        await fs.writeFile(batPath, batContent, 'latin1');
+        console.log(`✅ Batch file written with Windows-1251 encoding: ${batPath}`);
 
         const gameDir = path.dirname(gameExePath);
         const child: ChildProcess = spawn('cmd.exe', ['/c', batPath], {
@@ -776,30 +772,33 @@ export class GameProcessManager extends EventEmitter {
       console.log(`🔤 Character name: "${characterName}"`);
     }
 
-    const params = [
-      'startbypatcher',
-      `game:cpw`,
-      `user:${account.login}`,
-      `pwd:${account.password}`,
-      `role:${characterName}`,
-    ];
-
-    if (account.server) {
-      params.push(`server:${account.server}`);
-    }
-
     const gameDir = path.dirname(gameExePath);
     const exeName = path.basename(gameExePath);
 
-    // ALWAYS use UTF-8 code page (65001) for modern Windows
+    // Use Windows-1251 code page for reliable Russian character support
     let content = `@echo off\r\n`;
-    content += `chcp 65001 >nul 2>&1\r\n`;  // UTF-8 code page
+    content += `chcp 1251\r\n`;  // Windows-1251 code page for Cyrillic
     content += `REM Account: ${account.login}\r\n`;
     content += `REM Character: ${characterName || 'Not specified'}\r\n`;
     content += `REM Server: ${account.server || 'Default'}\r\n`;
     content += `\r\n`;
     
     content += `cd /d "${gameDir}"\r\n`;
+    
+    // Use the reliable format: chcp 1251 + start "" elementclient.exe startbypatcher nocheck user:login pwd:password role:nickname rendernofocus
+    const params = [
+      'startbypatcher',
+      'nocheck',
+      `user:${account.login}`,
+      `pwd:${account.password}`
+    ];
+    
+    if (characterName) {
+      params.push(`role:${characterName}`);
+    }
+    
+    params.push('rendernofocus');
+    
     content += `start "" "${exeName}" ${params.join(' ')}\r\n`;
     content += `exit\r\n`;
 
@@ -810,14 +809,14 @@ export class GameProcessManager extends EventEmitter {
   private validateBatchFileFormat(content: string): boolean {
     const requiredElements = [
       '@echo off',
-      'chcp 65001',  // Changed from 'chcp 1251' to 'chcp 65001'
+      'chcp 1251',  // Windows-1251 for Cyrillic support
       'cd /d',
       'start ""',
       'startbypatcher',
-      'game:cpw',
+      'nocheck',
       'user:',
       'pwd:',
-      'role:',
+      'rendernofocus',
       'exit'
     ];
     
@@ -1058,16 +1057,12 @@ export class GameProcessManager extends EventEmitter {
       const batchFileName = `pw_${sanitizedLogin}.bat`;
       const batchFilePath = path.join(gameDir, batchFileName);
       
-      // Write batch file with UTF-8 encoding (always use UTF-8 with BOM)
+      // Write batch file with Windows-1251 encoding for reliable character support
       console.log(`🔤 Writing permanent batch file for ${account.login}...`);
       
-      // ALWAYS use UTF-8 with BOM for batch files
-      const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
-      const contentBuffer = Buffer.from(batchContent, 'utf8');
-      const finalBuffer = Buffer.concat([utf8Bom, contentBuffer]);
-      
-      await fs.writeFile(batchFilePath, finalBuffer);
-      console.log(`✅ Permanent batch file written with UTF-8 encoding: ${batchFilePath}`);
+      // Use Windows-1251 encoding for Russian character compatibility
+      await fs.writeFile(batchFilePath, batchContent, 'latin1');
+      console.log(`✅ Permanent batch file written with Windows-1251 encoding: ${batchFilePath}`);
       
       return batchFilePath;
     } catch (error) {
