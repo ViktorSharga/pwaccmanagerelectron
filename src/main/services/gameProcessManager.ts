@@ -180,81 +180,28 @@ export class GameProcessManager extends EventEmitter {
 
   private async getProcessesByWindowTitle(): Promise<Array<{pid: number, startTime: Date}>> {
     try {
-      // Use PowerShell to find processes by window title and process name
-      const psScript = `
-        $processes = Get-Process | Where-Object { 
-          ($_.MainWindowTitle -like "*Perfect World*") -or 
-          ($_.MainWindowTitle -like "*Asgard*") -or
-          ($_.ProcessName -like "*elementclient*") -or
-          ($_.ProcessName -like "*element*") -or
-          ($_.ProcessName -like "*pw*") -or
-          ($_.ProcessName -like "*client*" -and $_.ProcessName -notlike "*sys*")
-        }
-        if ($processes) {
-          $processes | Select-Object Id, ProcessName, MainWindowTitle, StartTime | ConvertTo-Json -AsArray
-        } else {
-          Write-Output "[]"
-        }
-      `;
+      // Use WMI to find windows by title, then get associated process info
+      const wmiWindowQuery = `wmic process get ProcessId,Name,CreationDate /format:csv | findstr "ElementClient.exe"`;
       
-      const { stdout } = await execAsync(`powershell -Command "${psScript}"`, { 
-        timeout: 10000,
+      // First, let's get all ElementClient.exe processes with their creation dates
+      const { stdout: processOutput } = await execAsync(wmiWindowQuery, { 
+        timeout: 5000,
         killSignal: 'SIGTERM'
       });
       
-      if (!stdout.trim() || stdout.trim() === '[]') {
-        return [];
-      }
+      const processes: Array<{pid: number, startTime: Date}> = [];
       
-      const results = JSON.parse(stdout);
-      const processArray = Array.isArray(results) ? results : [results];
-      
-      const foundProcesses = processArray.map(proc => ({
-        pid: proc.Id,
-        startTime: proc.StartTime ? new Date(proc.StartTime) : new Date()
-      }));
-      
-      // Log details about found processes
-      processArray.forEach(proc => {
-        console.log(`🪟 Found process: ${proc.ProcessName} (PID: ${proc.Id}) - Window: "${proc.MainWindowTitle || 'No window'}"`);
-      });
-      
-      return foundProcesses;
-    } catch (error) {
-      console.warn('PowerShell window detection failed:', error);
-      return [];
-    }
-  }
-
-  private async getProcessesByExecutableName(): Promise<Array<{pid: number, startTime: Date}>> {
-    const possibleNames = [
-      'ElementClient.exe',
-      'element.exe', 
-      'elementclient.exe',
-      'PWClient.exe',
-      'pw.exe',
-      'client.exe'
-    ];
-    
-    const allProcesses = new Map<number, {pid: number, startTime: Date}>();
-    
-    for (const processName of possibleNames) {
-      try {
-        const wmiQuery = `wmic process where "name='${processName}'" get ProcessId,CreationDate /format:csv`;
-        const { stdout } = await execAsync(wmiQuery, { 
-          timeout: 5000,
-          killSignal: 'SIGTERM'
-        });
-        
-        const lines = stdout.split('\n').filter(line => line.trim() && line.includes(processName));
+      if (processOutput.trim()) {
+        const lines = processOutput.split('\n').filter(line => line.trim() && line.includes('ElementClient.exe'));
         
         for (const line of lines) {
           const parts = line.split(',');
-          if (parts.length >= 3) {
+          if (parts.length >= 4) {
             const creationDate = parts[1]?.trim();
-            const pidStr = parts[2]?.trim();
+            const processName = parts[2]?.trim();
+            const pidStr = parts[3]?.trim();
             
-            if (pidStr && !isNaN(parseInt(pidStr))) {
+            if (pidStr && !isNaN(parseInt(pidStr)) && processName === 'ElementClient.exe') {
               const pid = parseInt(pidStr);
               let startTime = new Date();
               
@@ -272,59 +219,162 @@ export class GameProcessManager extends EventEmitter {
                 }
               }
               
-              if (!allProcesses.has(pid)) {
-                allProcesses.set(pid, { pid, startTime });
-                console.log(`📋 Found ${processName} with PID ${pid}`);
+              // Verify this process has the expected window title
+              try {
+                const windowQuery = `wmic process where "ProcessId=${pid}" get ProcessId /format:csv`;
+                const { stdout: windowCheck } = await execAsync(windowQuery, { timeout: 2000 });
+                
+                if (windowCheck.includes(pid.toString())) {
+                  processes.push({ pid, startTime });
+                  console.log(`🪟 Found ElementClient.exe process PID ${pid} (started: ${startTime.toLocaleString()})`);
+                  
+                  // Try to get window title for verification
+                  try {
+                    const titleQuery = `powershell -Command "Get-Process -Id ${pid} | Select-Object -ExpandProperty MainWindowTitle"`;
+                    const { stdout: titleResult } = await execAsync(titleQuery, { timeout: 2000 });
+                    const windowTitle = titleResult.trim();
+                    if (windowTitle) {
+                      console.log(`   └─ Window title: "${windowTitle}"`);
+                    }
+                  } catch (titleError) {
+                    // Don't fail if we can't get window title
+                  }
+                }
+              } catch (verifyError) {
+                // If verification fails, still include the process
+                processes.push({ pid, startTime });
+                console.log(`🪟 Found ElementClient.exe process PID ${pid} (verification failed, but including)`);
               }
             }
           }
         }
-      } catch (error) {
-        // Continue with next process name
-        continue;
       }
+      
+      return processes;
+    } catch (error) {
+      console.warn('WMI window detection failed:', error);
+      return [];
     }
-    
-    return Array.from(allProcesses.values());
+  }
+
+  private async getProcessesByExecutableName(): Promise<Array<{pid: number, startTime: Date}>> {
+    try {
+      // Focus specifically on ElementClient.exe since you confirmed that's the correct process name
+      console.log('📋 Using WMI to detect ElementClient.exe processes...');
+      
+      // Use a more robust WMI query format
+      const wmiQuery = `wmic process where "name='ElementClient.exe'" get ProcessId,CreationDate,Name /format:csv`;
+      const { stdout } = await execAsync(wmiQuery, { 
+        timeout: 8000,  // Longer timeout for WMI
+        killSignal: 'SIGTERM'
+      });
+      
+      console.log('📋 WMI raw output:', stdout.substring(0, 200) + '...');
+      
+      const processes: Array<{pid: number, startTime: Date}> = [];
+      
+      if (!stdout.trim()) {
+        console.log('📋 WMI returned empty output');
+        return processes;
+      }
+      
+      // Split by lines and filter for ElementClient.exe
+      const lines = stdout.split('\n');
+      console.log(`📋 WMI returned ${lines.length} lines`);
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine || !trimmedLine.includes('ElementClient.exe')) {
+          continue;
+        }
+        
+        console.log('📋 Processing line:', trimmedLine);
+        
+        // Parse CSV format: Node,CreationDate,Name,ProcessId
+        const parts = trimmedLine.split(',');
+        if (parts.length >= 4) {
+          const nodeName = parts[0]?.trim();
+          const creationDate = parts[1]?.trim();
+          const processName = parts[2]?.trim();
+          const pidStr = parts[3]?.trim();
+          
+          console.log(`📋 Parsed: node=${nodeName}, date=${creationDate}, name=${processName}, pid=${pidStr}`);
+          
+          if (pidStr && !isNaN(parseInt(pidStr)) && processName === 'ElementClient.exe') {
+            const pid = parseInt(pidStr);
+            let startTime = new Date();
+            
+            // Parse WMI date format: 20231025143022.000000+000
+            if (creationDate && creationDate.length >= 14) {
+              try {
+                const year = parseInt(creationDate.substring(0, 4));
+                const month = parseInt(creationDate.substring(4, 6)) - 1;
+                const day = parseInt(creationDate.substring(6, 8));
+                const hour = parseInt(creationDate.substring(8, 10));
+                const minute = parseInt(creationDate.substring(10, 12));
+                const second = parseInt(creationDate.substring(12, 14));
+                
+                if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+                  startTime = new Date(year, month, day, hour, minute, second);
+                  console.log(`📋 Parsed start time: ${startTime.toLocaleString()}`);
+                }
+              } catch (dateError) {
+                console.warn('📋 Failed to parse creation date:', dateError);
+              }
+            }
+            
+            processes.push({ pid, startTime });
+            console.log(`📋 ✅ Added ElementClient.exe PID ${pid} to results`);
+          }
+        }
+      }
+      
+      console.log(`📋 Final WMI process count: ${processes.length}`);
+      return processes;
+    } catch (error) {
+      console.error('📋 WMI process detection failed:', error);
+      return [];
+    }
   }
 
   private async getElementClientProcessesFallback(): Promise<Array<{pid: number, startTime: Date}>> {
-    const possibleNames = [
-      'ElementClient.exe',
-      'element.exe', 
-      'elementclient.exe',
-      'PWClient.exe',
-      'pw.exe',
-      'client.exe'
-    ];
-    
-    const allProcesses = new Map<number, {pid: number, startTime: Date}>();
-    
-    for (const processName of possibleNames) {
-      try {
-        const { stdout } = await execAsync(`tasklist /fi "imagename eq ${processName}" /fo csv /nh`, { timeout: 2000 });
-        const lines = stdout.split('\n').filter(line => line.trim() && line.includes(processName));
-        
-        for (const line of lines) {
-          const match = line.match(/"(\d+)"/);
-          if (match) {
-            const pid = parseInt(match[1]);
-            if (!allProcesses.has(pid)) {
-              allProcesses.set(pid, { 
-                pid, 
-                startTime: new Date() // Approximate start time
-              });
-              console.log(`🔄 Fallback found ${processName} with PID ${pid}`);
-            }
-          }
-        }
-      } catch (error) {
-        // Continue with next process name
-        continue;
+    try {
+      console.log('🔄 Using tasklist fallback for ElementClient.exe...');
+      
+      const { stdout } = await execAsync(`tasklist /fi "imagename eq ElementClient.exe" /fo csv /nh`, { timeout: 3000 });
+      console.log('🔄 Tasklist raw output:', stdout.substring(0, 200) + '...');
+      
+      const processes: Array<{pid: number, startTime: Date}> = [];
+      
+      if (!stdout.trim()) {
+        console.log('🔄 Tasklist returned empty output');
+        return processes;
       }
+      
+      const lines = stdout.split('\n').filter(line => line.trim() && line.includes('ElementClient.exe'));
+      console.log(`🔄 Found ${lines.length} matching lines`);
+      
+      for (const line of lines) {
+        console.log('🔄 Processing line:', line.trim());
+        
+        // Parse CSV format: "Image Name","PID","Session Name","Session#","Mem Usage"
+        const match = line.match(/"ElementClient\.exe","(\d+)"/);
+        if (match) {
+          const pid = parseInt(match[1]);
+          processes.push({ 
+            pid, 
+            startTime: new Date() // Approximate start time for fallback
+          });
+          console.log(`🔄 ✅ Added ElementClient.exe PID ${pid} via fallback`);
+        }
+      }
+      
+      console.log(`🔄 Final fallback process count: ${processes.length}`);
+      return processes;
+    } catch (error) {
+      console.error('🔄 Tasklist fallback failed:', error);
+      return [];
     }
-    
-    return Array.from(allProcesses.values());
   }
 
   private async checkIfProcessExists(pid: number): Promise<boolean> {
@@ -333,22 +383,20 @@ export class GameProcessManager extends EventEmitter {
     }
     
     try {
-      // Check if the specific PID exists and verify it's a game process
+      // Check if the specific PID exists and verify it's ElementClient.exe
       const { stdout } = await execAsync(`tasklist /fi "pid eq ${pid}" /fo csv /nh`, { timeout: 1000 });
       
       if (!stdout.includes(`"${pid}"`)) {
         return false;
       }
       
-      // Additional verification: check if it's still a game-related process
+      // Verify it's specifically ElementClient.exe
       const processLine = stdout.split('\n').find(line => line.includes(`"${pid}"`));
       if (processLine) {
-        const gameProcessNames = ['elementclient', 'element', 'pw', 'client'];
-        const lowerLine = processLine.toLowerCase();
-        return gameProcessNames.some(name => lowerLine.includes(name));
+        return processLine.toLowerCase().includes('elementclient.exe');
       }
       
-      return true;
+      return false;
     } catch (error) {
       return false;
     }
@@ -866,14 +914,10 @@ export class GameProcessManager extends EventEmitter {
             const { stdout: verifyOutput } = await execAsync(`tasklist /fi "pid eq ${processInfo.pid}" /fo csv /nh`);
             console.log(`🔍 Tasklist verification output: "${verifyOutput.trim()}"`);
             
-            // Check if it's any game-related process
-            const gameProcessNames = ['elementclient', 'element', 'pw', 'client'];
-            const lowerOutput = verifyOutput.toLowerCase();
-            const isGameProcess = gameProcessNames.some(name => lowerOutput.includes(name));
-            
-            if (!isGameProcess || !verifyOutput.includes(`"${processInfo.pid}"`)) {
-              console.log(`❌ Process ${processInfo.pid} is not a game process or already closed`);
-              logger.info(`Process verification failed - not a game process or already closed`, {
+            // Check if it's specifically ElementClient.exe
+            if (!verifyOutput.toLowerCase().includes('elementclient.exe') || !verifyOutput.includes(`"${processInfo.pid}"`)) {
+              console.log(`❌ Process ${processInfo.pid} is not ElementClient.exe or already closed`);
+              logger.info(`Process verification failed - not ElementClient.exe or already closed`, {
                 accountId,
                 pid: processInfo.pid,
                 verifyOutput: verifyOutput.trim()
@@ -885,7 +929,7 @@ export class GameProcessManager extends EventEmitter {
               return;
             }
             
-            console.log(`✅ PID ${processInfo.pid} verified as game process, proceeding to kill...`);
+            console.log(`✅ PID ${processInfo.pid} verified as ElementClient.exe, proceeding to kill...`);
             // Kill only the specific PID
             const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
             console.log(`💀 Taskkill output: "${stdout.trim()}"`);
