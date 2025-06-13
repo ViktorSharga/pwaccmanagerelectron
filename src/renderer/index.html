@@ -124,8 +124,20 @@
     </div>
     
     <div class="status-bar">
-      <span id="account-count">0 accounts</span>
-      <span id="running-count">0 running</span>
+      <div class="status-bar-left">
+        <span id="account-count">0 accounts</span>
+        <span id="running-count">0 running</span>
+        <div class="operation-status idle" id="operation-status">
+          <span id="operation-text">Ready</span>
+        </div>
+      </div>
+      <div class="status-bar-right">
+        <div class="error-indicator" id="error-indicator" style="display: none;">
+          <span>⚠️ Errors</span>
+          <span class="error-count" id="error-count">0</span>
+        </div>
+        <a href="#" class="log-link" id="view-logs">View Logs</a>
+      </div>
     </div>
   </div>
   

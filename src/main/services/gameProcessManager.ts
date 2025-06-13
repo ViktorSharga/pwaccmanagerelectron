@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import { Account, ProcessInfo } from '../../shared/types';
+import { logger } from './loggingService';
 
 const execAsync = promisify(exec);
 
@@ -25,7 +26,7 @@ export class GameProcessManager extends EventEmitter {
     this.settingsManager = settingsManager;
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
-    console.log('GameProcessManager initialized - monitoring disabled for performance');
+    logger.info('GameProcessManager initialized - monitoring disabled for performance', null, 'PROCESS_MANAGER');
     
     // Scan for existing processes on startup
     this.scanExistingProcesses();
@@ -257,6 +258,9 @@ export class GameProcessManager extends EventEmitter {
                   const targetProcess = recentProcesses[0];
                   processInfo.pid = targetProcess.pid;
                   console.log(`🔄 Late association: ${processInfo.login} now has PID ${targetProcess.pid}`);
+                  
+                  // IMPORTANT: Send status update to UI when PID is finally detected
+                  this.emit('status-update', accountId, true);
                   stillRunning = true;
                 } else {
                   // Still launching or failed launch, assume still running for now
@@ -373,16 +377,18 @@ export class GameProcessManager extends EventEmitter {
   }
 
   async launchGame(account: Account, gamePath: string): Promise<void> {
+    logger.startOperation(`Launching ${account.login}`);
+    
     return new Promise(async (resolve, reject) => {
       try {
         const gameExePath = await this.findElementClientPath(gamePath);
         
         // Get ALL existing ElementClient.exe processes before launch (only when needed)
         const existingProcesses = await this.getElementClientProcesses();
-        console.log(`📊 Pre-launch: Found ${existingProcesses.length} existing ElementClient.exe processes`);
-        existingProcesses.forEach(proc => {
-          console.log(`  📌 PID ${proc.pid} (started: ${proc.startTime.toLocaleString()})`);
-        });
+        logger.info(`Pre-launch: Found ${existingProcesses.length} existing ElementClient.exe processes`, {
+          count: existingProcesses.length,
+          pids: existingProcesses.map(p => p.pid)
+        }, 'LAUNCH');
         
         // Record launch time for reliable new process detection
         const launchTime = new Date();
@@ -445,6 +451,8 @@ export class GameProcessManager extends EventEmitter {
         // Wait and find the new ElementClient.exe process - resolve when PID is found
         this.findNewElementClientProcess(account, existingProcesses, launchTime, resolve, reject);
       } catch (error) {
+        logger.error(`Failed to launch game for ${account.login}`, error, 'LAUNCH');
+        logger.endOperation(false);
         reject(error);
       }
     });
@@ -511,13 +519,20 @@ export class GameProcessManager extends EventEmitter {
             windowTitle: '',
           });
           
-          console.log(`✅ Associated ElementClient.exe process ${targetProcess.pid} with account ${account.login} (started: ${targetProcess.startTime.toLocaleTimeString()})`);
+          logger.info(`Successfully associated process ${targetProcess.pid} with account ${account.login}`, {
+            pid: targetProcess.pid,
+            accountId: account.id,
+            startTime: targetProcess.startTime
+          }, 'LAUNCH');
+          
+          // Send status update to refresh UI with actual PID
           this.emit('status-update', account.id, true);
           
           // Start crash detection now that we have a process to monitor
           this.startOptionalCrashDetection();
           
           // Resolve the Promise - PID found successfully
+          logger.endOperation(true);
           resolve();
           return;
         }
@@ -626,14 +641,25 @@ export class GameProcessManager extends EventEmitter {
 
   async closeGame(accountId: string): Promise<void> {
     const processInfo = this.processes.get(accountId);
+    
     if (!processInfo) {
-      console.log(`No process found for account ${accountId}`);
+      logger.warn(`No process found for account ${accountId}`, {
+        accountId,
+        trackedAccounts: Array.from(this.processes.keys())
+      }, 'CLOSE');
       return;
     }
 
+    logger.startOperation(`Closing ${processInfo.login}`);
+    logger.info(`Found process for ${processInfo.login}`, {
+      accountId,
+      pid: processInfo.pid,
+      login: processInfo.login
+    }, 'CLOSE');
+
     // Mark this as a user-initiated closure to prevent auto-restart
     this.userInitiatedClosures.add(accountId);
-    console.log(`🚫 Marked ${processInfo.login} as user-initiated closure`);
+    logger.debug(`Marked ${processInfo.login} as user-initiated closure`, null, 'CLOSE');
 
     try {
       if (processInfo.pid === -1 || processInfo.pid === -2) {
@@ -650,7 +676,7 @@ export class GameProcessManager extends EventEmitter {
           this.stopCrashDetection();
         }
         
-        console.log(`Marked ${processInfo.login} as stopped (PID was unknown)`);
+        console.log(`✅ Marked ${processInfo.login} as stopped (PID was unknown - no process killed)`);
         return;
       } else {
         // Handle processes with known PID - ONLY kill the specific PID
@@ -694,9 +720,10 @@ export class GameProcessManager extends EventEmitter {
         this.stopCrashDetection();
       }
       
-      console.log(`Successfully closed process for account ${processInfo.login}`);
+      logger.info(`Successfully closed process for account ${processInfo.login}`, { accountId, pid: processInfo.pid }, 'CLOSE');
+      logger.endOperation(true);
     } catch (error) {
-      console.error(`Failed to close game process for ${processInfo.login}:`, error);
+      logger.error(`Failed to close game process for ${processInfo.login}`, error, 'CLOSE');
       
       // Even if killing failed, remove from tracking and update status
       this.processes.delete(accountId);
@@ -707,12 +734,35 @@ export class GameProcessManager extends EventEmitter {
       if (this.processes.size === 0) {
         this.stopCrashDetection();
       }
+      
+      logger.endOperation(false);
     }
   }
 
   async closeMultipleGames(accountIds: string[]): Promise<void> {
+    console.log(`🔄 closeMultipleGames called with accountIds: [${accountIds.join(', ')}]`);
+    
+    for (const accountId of accountIds) {
+      const processInfo = this.processes.get(accountId);
+      if (processInfo) {
+        console.log(`  📋 Account ${processInfo.login} (ID: ${accountId}) has PID: ${processInfo.pid}`);
+      } else {
+        console.log(`  ⚠️ No process info found for account ID: ${accountId}`);
+      }
+    }
+    
     const closePromises = accountIds.map(accountId => this.closeGame(accountId));
-    await Promise.allSettled(closePromises);
+    const results = await Promise.allSettled(closePromises);
+    
+    // Log results for debugging
+    results.forEach((result, index) => {
+      const accountId = accountIds[index];
+      if (result.status === 'rejected') {
+        console.error(`❌ Failed to close account ${accountId}:`, result.reason);
+      } else {
+        console.log(`✅ Successfully processed close for account ${accountId}`);
+      }
+    });
   }
 
   async closeAllGames(): Promise<void> {

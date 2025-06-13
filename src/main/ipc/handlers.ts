@@ -8,6 +8,8 @@ import { GameProcessManager } from '../services/gameProcessManager';
 import { BatchFileScanner } from '../services/batchFileScanner';
 import { WebViewManager } from '../services/webviewManager';
 import { mainWindow } from '../main';
+import { logger } from '../services/loggingService';
+import { setupLoggingHandlers } from './loggingHandlers';
 
 let accountStorage: AccountStorage;
 let settingsManager: SettingsManager;
@@ -60,6 +62,11 @@ export function setupIpcHandlers() {
   settingsManager = new SettingsManager();
   gameProcessManager = new GameProcessManager(settingsManager);
   webViewManager = new WebViewManager();
+
+  // Setup logging handlers
+  setupLoggingHandlers();
+  
+  logger.info('Application started', { version: '1.1.0' }, 'MAIN');
 
   ipcMain.handle('get-accounts', async () => {
     const accounts = await accountStorage.getAccounts();
@@ -210,12 +217,22 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle('close-game', async (_, accountIds: string[]) => {
-    if (accountIds.length === 1) {
-      await gameProcessManager.closeGame(accountIds[0]);
-    } else {
-      await gameProcessManager.closeMultipleGames(accountIds);
+    console.log(`📨 IPC close-game received accountIds: [${accountIds.join(', ')}]`);
+    
+    try {
+      if (accountIds.length === 1) {
+        console.log(`📨 Single close for: ${accountIds[0]}`);
+        await gameProcessManager.closeGame(accountIds[0]);
+      } else {
+        console.log(`📨 Multiple close for: [${accountIds.join(', ')}]`);
+        await gameProcessManager.closeMultipleGames(accountIds);
+      }
+      console.log(`📨 IPC close-game completed successfully`);
+      return { success: true };
+    } catch (error) {
+      console.error(`📨 IPC close-game failed:`, error);
+      return { success: false, error: error.message };
     }
-    return { success: true };
   });
 
   ipcMain.handle('scan-batch-files', async () => {

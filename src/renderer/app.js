@@ -5,6 +5,10 @@ class PerfectWorldAccountManager {
     this.settings = null;
     this.selectedAccountIds = new Set();
     this.runningProcesses = new Map(); // Map accountId -> processInfo
+    this.recentErrors = [];
+    this.currentOperation = null;
+    this.logs = [];
+    this.activeTab = 'general'; // For settings dialog tabs
     
     this.initialize();
   }
@@ -78,6 +82,16 @@ class PerfectWorldAccountManager {
       const checked = e.target.checked;
       this.selectAllAccounts(checked);
     });
+    
+    // Status bar elements
+    document.getElementById('error-indicator')?.addEventListener('click', () => {
+      this.showSettingsDialog('logs');
+    });
+    
+    document.getElementById('view-logs')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.showSettingsDialog('logs');
+    });
 
     // IPC listeners
     window.electronAPI.on('process-status-update', (_, data) => {
@@ -95,6 +109,43 @@ class PerfectWorldAccountManager {
         this.renderAccountTable();
         this.updateStatusBar();
         this.updateToolbarButtons(); // Update toolbar buttons after status change
+      }
+    });
+    
+    // Logging event listeners
+    window.electronAPI.on('log-added', (_, logEntry) => {
+      this.logs.push(logEntry);
+      if (this.logs.length > 1000) {
+        this.logs.shift(); // Keep only last 1000 logs in UI
+      }
+      
+      // Update logs view if it's open
+      if (this.activeTab === 'logs' && document.querySelector('.logs-container')) {
+        this.appendLogEntry(logEntry);
+      }
+    });
+    
+    window.electronAPI.on('error-logged', (_, logEntry) => {
+      this.recentErrors.push(logEntry);
+      if (this.recentErrors.length > 10) {
+        this.recentErrors.shift();
+      }
+      this.updateErrorIndicator();
+    });
+    
+    window.electronAPI.on('operation-changed', (_, operation) => {
+      this.currentOperation = operation;
+      this.updateOperationStatus();
+    });
+    
+    window.electronAPI.on('logs-cleared', () => {
+      this.logs = [];
+      this.recentErrors = [];
+      this.updateErrorIndicator();
+      
+      // Update logs view if it's open
+      if (this.activeTab === 'logs' && document.querySelector('.logs-container')) {
+        this.renderLogs();
       }
     });
   }
@@ -420,56 +471,92 @@ class PerfectWorldAccountManager {
     });
   }
 
-  async showSettingsDialog() {
+  async showSettingsDialog(initialTab = 'general') {
+    // Load logs first if opening logs tab
+    if (initialTab === 'logs') {
+      this.logs = await window.electronAPI.invoke('get-logs');
+    }
+    
     return new Promise((resolve) => {
       const overlay = this.createOverlay();
       const dialog = this.createDialog();
+      dialog.style.width = '700px'; // Wider for tabs
       
       dialog.innerHTML = `
         <div class="dialog-header">
           <h2>Settings</h2>
         </div>
         <div class="dialog-content">
-          <form id="settings-form">
-            <div class="form-group">
-              <label>Game Path</label>
-              <div style="display: flex; gap: 8px;">
-                <input type="text" name="gamePath" value="${this.settings?.gamePath || ''}" readonly>
-                <button type="button" id="browse-btn" class="btn btn-secondary">Browse</button>
+          <div class="tab-container">
+            <button class="tab-button ${initialTab === 'general' ? 'active' : ''}" data-tab="general">General</button>
+            <button class="tab-button ${initialTab === 'logs' ? 'active' : ''}" data-tab="logs">Logs</button>
+          </div>
+          
+          <div id="general-tab" class="tab-content ${initialTab === 'general' ? 'active' : ''}">
+            <form id="settings-form">
+              <div class="form-group">
+                <label>Game Path</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" name="gamePath" value="${this.settings?.gamePath || ''}" readonly>
+                  <button type="button" id="browse-btn" class="btn btn-secondary">Browse</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Launch Delay for Group Operations (seconds): ${this.settings?.launchDelay || 15}</label>
+                <input type="range" name="launchDelay" min="10" max="60" value="${this.settings?.launchDelay || 15}" step="1">
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                  Delay between launches when launching multiple clients.<br>
+                  Individual launches have no delay. First client in group launches immediately.
+                </small>
+              </div>
+              <div class="form-group">
+                <label>Process Monitoring</label>
+                <select name="processMonitoringMode" id="processMonitoringMode">
+                  <option value="disabled" ${this.settings?.processMonitoringMode === 'disabled' ? 'selected' : ''}>Disabled (Manual Control Only)</option>
+                  <option value="5min" ${this.settings?.processMonitoringMode === '5min' ? 'selected' : ''}>5 Minutes (Best Performance)</option>
+                  <option value="3min" ${this.settings?.processMonitoringMode === '3min' || !this.settings?.processMonitoringMode ? 'selected' : ''}>3 Minutes (Balanced)</option>
+                  <option value="1min" ${this.settings?.processMonitoringMode === '1min' ? 'selected' : ''}>1 Minute (Most Responsive)</option>
+                </select>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                  <strong>Disabled:</strong> Processes remain "running" until manually closed<br>
+                  <strong>1-5 Minutes:</strong> Check if game processes still exist at selected intervals<br>
+                  <strong>Note:</strong> Only monitors when clients are actively running
+                </small>
+              </div>
+              <div class="form-group" id="autoRestartGroup" style="display: ${this.settings?.processMonitoringMode === 'disabled' ? 'none' : 'block'};">
+                <label>
+                  <input type="checkbox" name="autoRestartCrashedClients" ${this.settings?.autoRestartCrashedClients ? 'checked' : ''}>
+                  Automatically Restart Crashed Clients
+                </label>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                  When monitoring detects a client has crashed (not manually closed), automatically restart it.
+                </small>
+              </div>
+            </form>
+          </div>
+          
+          <div id="logs-tab" class="tab-content ${initialTab === 'logs' ? 'active' : ''}">
+            <div class="logs-toolbar">
+              <div class="log-filter">
+                <label>Level:</label>
+                <select id="log-level-filter">
+                  <option value="">All</option>
+                  <option value="0">Debug</option>
+                  <option value="1">Info</option>
+                  <option value="2">Warning</option>
+                  <option value="3">Error</option>
+                </select>
+                <input type="text" id="log-search" placeholder="Search logs..." style="width: 200px;">
+              </div>
+              <div>
+                <button type="button" class="btn btn-secondary" id="clear-logs-btn" style="margin-right: 8px;">Clear Logs</button>
+                <button type="button" class="btn btn-secondary" id="export-logs-btn">Export Logs</button>
               </div>
             </div>
-            <div class="form-group">
-              <label>Launch Delay for Group Operations (seconds): ${this.settings?.launchDelay || 15}</label>
-              <input type="range" name="launchDelay" min="10" max="60" value="${this.settings?.launchDelay || 15}" step="1">
-              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                Delay between launches when launching multiple clients.<br>
-                Individual launches have no delay. First client in group launches immediately.
-              </small>
+            <div class="logs-container" id="logs-container">
+              ${this.logs.length === 0 ? '<div class="logs-empty">No logs to display</div>' : ''}
             </div>
-            <div class="form-group">
-              <label>Process Monitoring</label>
-              <select name="processMonitoringMode" id="processMonitoringMode">
-                <option value="disabled" ${this.settings?.processMonitoringMode === 'disabled' ? 'selected' : ''}>Disabled (Manual Control Only)</option>
-                <option value="5min" ${this.settings?.processMonitoringMode === '5min' ? 'selected' : ''}>5 Minutes (Best Performance)</option>
-                <option value="3min" ${this.settings?.processMonitoringMode === '3min' || !this.settings?.processMonitoringMode ? 'selected' : ''}>3 Minutes (Balanced)</option>
-                <option value="1min" ${this.settings?.processMonitoringMode === '1min' ? 'selected' : ''}>1 Minute (Most Responsive)</option>
-              </select>
-              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                <strong>Disabled:</strong> Processes remain "running" until manually closed<br>
-                <strong>1-5 Minutes:</strong> Check if game processes still exist at selected intervals<br>
-                <strong>Note:</strong> Only monitors when clients are actively running
-              </small>
-            </div>
-            <div class="form-group" id="autoRestartGroup" style="display: ${this.settings?.processMonitoringMode === 'disabled' ? 'none' : 'block'};">
-              <label>
-                <input type="checkbox" name="autoRestartCrashedClients" ${this.settings?.autoRestartCrashedClients ? 'checked' : ''}>
-                Automatically Restart Crashed Clients
-              </label>
-              <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                When monitoring detects a client has crashed (not manually closed), automatically restart it.
-              </small>
-            </div>
-          </form>
+          </div>
         </div>
         <div class="dialog-footer">
           <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
@@ -484,21 +571,95 @@ class PerfectWorldAccountManager {
       const saveBtn = dialog.querySelector('#save-btn');
       const cancelBtn = dialog.querySelector('#cancel-btn');
       const browseBtn = dialog.querySelector('#browse-btn');
-      const gamePathInput = form.querySelector('input[name="gamePath"]');
-      const delaySlider = form.querySelector('input[name="launchDelay"]');
-      const delayLabel = form.querySelector('label');
-      const monitoringSelect = form.querySelector('#processMonitoringMode');
-      const autoRestartGroup = form.querySelector('#autoRestartGroup');
+      const gamePathInput = form?.querySelector('input[name="gamePath"]');
+      const delaySlider = form?.querySelector('input[name="launchDelay"]');
+      const delayLabel = dialog.querySelector('#general-tab label');
+      const monitoringSelect = form?.querySelector('#processMonitoringMode');
+      const autoRestartGroup = dialog.querySelector('#autoRestartGroup');
       
-      delaySlider.oninput = () => {
-        delayLabel.textContent = `Launch Delay for Group Operations (seconds): ${delaySlider.value}`;
-      };
+      // Tab switching
+      const tabButtons = dialog.querySelectorAll('.tab-button');
+      const tabContents = dialog.querySelectorAll('.tab-content');
+      
+      tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+          const targetTab = button.dataset.tab;
+          this.activeTab = targetTab;
+          
+          // Update active states
+          tabButtons.forEach(btn => btn.classList.remove('active'));
+          tabContents.forEach(content => content.classList.remove('active'));
+          
+          button.classList.add('active');
+          dialog.querySelector(`#${targetTab}-tab`).classList.add('active');
+          
+          // Load logs if switching to logs tab
+          if (targetTab === 'logs' && this.logs.length === 0) {
+            this.loadLogsForDialog();
+          }
+        });
+      });
+      
+      // If logs tab is initially active, render logs
+      if (initialTab === 'logs') {
+        this.renderLogs();
+      }
+      
+      if (delaySlider) {
+        delaySlider.oninput = () => {
+          const label = dialog.querySelector('#general-tab label[for="launchDelay"]') || dialog.querySelector('#general-tab label');
+          if (label && label.textContent.includes('Launch Delay')) {
+            label.textContent = `Launch Delay for Group Operations (seconds): ${delaySlider.value}`;
+          }
+        };
+      }
       
       // Show/hide auto-restart option based on monitoring mode
-      monitoringSelect.onchange = () => {
-        const isDisabled = monitoringSelect.value === 'disabled';
-        autoRestartGroup.style.display = isDisabled ? 'none' : 'block';
-      };
+      if (monitoringSelect) {
+        monitoringSelect.onchange = () => {
+          const isDisabled = monitoringSelect.value === 'disabled';
+          if (autoRestartGroup) {
+            autoRestartGroup.style.display = isDisabled ? 'none' : 'block';
+          }
+        };
+      }
+      
+      // Log tab event handlers
+      const logLevelFilter = dialog.querySelector('#log-level-filter');
+      const logSearch = dialog.querySelector('#log-search');
+      const clearLogsBtn = dialog.querySelector('#clear-logs-btn');
+      const exportLogsBtn = dialog.querySelector('#export-logs-btn');
+      
+      if (logLevelFilter) {
+        logLevelFilter.addEventListener('change', () => this.filterLogs());
+      }
+      
+      if (logSearch) {
+        logSearch.addEventListener('input', () => this.filterLogs());
+      }
+      
+      if (clearLogsBtn) {
+        clearLogsBtn.addEventListener('click', async () => {
+          const confirmed = await this.showConfirmDialog('Clear Logs', 'Are you sure you want to clear all logs?');
+          if (confirmed) {
+            await window.electronAPI.invoke('clear-logs');
+            this.showToast('Logs cleared successfully');
+          }
+        });
+      }
+      
+      if (exportLogsBtn) {
+        exportLogsBtn.addEventListener('click', async () => {
+          try {
+            const result = await window.electronAPI.invoke('export-logs');
+            if (result.success) {
+              this.showToast('Logs exported successfully');
+            }
+          } catch (error) {
+            this.showErrorDialog('Export Failed', error.message);
+          }
+        });
+      }
       
       browseBtn.onclick = async () => {
         try {
@@ -670,8 +831,12 @@ class PerfectWorldAccountManager {
     if (!account.isRunning) return;
     
     try {
-      await window.electronAPI.invoke('close-game', [account.id]);
-      this.showToast(`Closing ${account.login}...`);
+      const result = await window.electronAPI.invoke('close-game', [account.id]);
+      if (result.success) {
+        this.showToast(`Closing ${account.login}...`);
+      } else {
+        this.showErrorDialog('Failed to close game', result.error || 'Unknown error');
+      }
     } catch (error) {
       this.showErrorDialog('Failed to close game', error.message);
     }
@@ -689,8 +854,12 @@ class PerfectWorldAccountManager {
     if (!confirmed) return;
     
     try {
-      await window.electronAPI.invoke('close-game', runningAccounts.map(a => a.id));
-      this.showToast(`Closing ${runningAccounts.length} game(s)...`);
+      const result = await window.electronAPI.invoke('close-game', runningAccounts.map(a => a.id));
+      if (result.success) {
+        this.showToast(`Closing ${runningAccounts.length} game(s)...`);
+      } else {
+        this.showErrorDialog('Failed to close games', result.error || 'Unknown error');
+      }
     } catch (error) {
       this.showErrorDialog('Failed to close games', error.message);
     }
@@ -708,8 +877,12 @@ class PerfectWorldAccountManager {
     if (!confirmed) return;
     
     try {
-      await window.electronAPI.invoke('close-game', selectedRunningAccounts.map(a => a.id));
-      this.showToast(`Closing ${selectedRunningAccounts.length} selected game(s)...`);
+      const result = await window.electronAPI.invoke('close-game', selectedRunningAccounts.map(a => a.id));
+      if (result.success) {
+        this.showToast(`Closing ${selectedRunningAccounts.length} selected game(s)...`);
+      } else {
+        this.showErrorDialog('Failed to close selected games', result.error || 'Unknown error');
+      }
     } catch (error) {
       this.showErrorDialog('Failed to close selected games', error.message);
     }
@@ -1246,9 +1419,184 @@ class PerfectWorldAccountManager {
     div.textContent = text;
     return div.innerHTML;
   }
+
+  // Status bar and logging methods
+  updateOperationStatus() {
+    const operationStatus = document.getElementById('operation-status');
+    const operationText = document.getElementById('operation-text');
+    
+    if (!operationStatus || !operationText) return;
+    
+    if (this.currentOperation) {
+      operationStatus.classList.remove('idle');
+      operationStatus.innerHTML = `
+        <div class="operation-spinner"></div>
+        <span>${this.escapeHtml(this.currentOperation)}</span>
+      `;
+    } else {
+      operationStatus.classList.add('idle');
+      operationStatus.innerHTML = '<span>Ready</span>';
+    }
+  }
+  
+  updateErrorIndicator() {
+    const errorIndicator = document.getElementById('error-indicator');
+    const errorCount = document.getElementById('error-count');
+    
+    if (!errorIndicator || !errorCount) return;
+    
+    if (this.recentErrors.length > 0) {
+      errorIndicator.style.display = 'flex';
+      errorCount.textContent = this.recentErrors.length.toString();
+    } else {
+      errorIndicator.style.display = 'none';
+    }
+  }
+  
+  async startOperation(operation) {
+    this.currentOperation = operation;
+    this.updateOperationStatus();
+  }
+  
+  async endOperation() {
+    this.currentOperation = null;
+    this.updateOperationStatus();
+  }
+  
+  // Log rendering methods
+  renderLogs() {
+    const container = document.querySelector('#logs-container');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    const filteredLogs = this.getFilteredLogs();
+    
+    if (filteredLogs.length === 0) {
+      container.innerHTML = '<div class="logs-empty">No logs to display</div>';
+      return;
+    }
+    
+    // Render in reverse order (newest first)
+    filteredLogs.reverse().forEach(log => {
+      container.appendChild(this.createLogElement(log));
+    });
+  }
+  
+  appendLogEntry(logEntry) {
+    const container = document.querySelector('#logs-container');
+    if (!container) return;
+    
+    // Remove empty message if present
+    const emptyMsg = container.querySelector('.logs-empty');
+    if (emptyMsg) {
+      emptyMsg.remove();
+    }
+    
+    // Add to top (newest first)
+    container.insertBefore(this.createLogElement(logEntry), container.firstChild);
+  }
+  
+  createLogElement(log) {
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.dataset.logId = log.id;
+    
+    const levelClass = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'OPERATION'][log.level] || 'INFO';
+    
+    div.innerHTML = `
+      <span class="log-timestamp">${new Date(log.timestamp).toLocaleString()}</span>
+      <span class="log-level ${levelClass}">${levelClass}</span>
+      <span class="log-message">${this.escapeHtml(log.message)}</span>
+      ${log.context ? `<span class="log-context">[${this.escapeHtml(log.context)}]</span>` : ''}
+      <div class="log-actions">
+        <button class="log-action-btn" onclick="app.copyLogEntry('${log.id}')">Copy</button>
+        ${log.details || log.stackTrace ? `<button class="log-action-btn" onclick="app.toggleLogDetails('${log.id}')">Details</button>` : ''}
+      </div>
+    `;
+    
+    if (log.details || log.stackTrace) {
+      const detailsDiv = document.createElement('div');
+      detailsDiv.className = 'log-details-container';
+      detailsDiv.id = `log-details-${log.id}`;
+      detailsDiv.style.display = 'none';
+      
+      if (log.details) {
+        const details = document.createElement('div');
+        details.className = 'log-details';
+        details.textContent = JSON.stringify(log.details, null, 2);
+        detailsDiv.appendChild(details);
+      }
+      
+      if (log.stackTrace) {
+        const stack = document.createElement('div');
+        stack.className = 'log-stack-trace';
+        stack.textContent = log.stackTrace;
+        detailsDiv.appendChild(stack);
+      }
+      
+      div.appendChild(detailsDiv);
+    }
+    
+    return div;
+  }
+  
+  getFilteredLogs() {
+    const levelFilter = document.querySelector('#log-level-filter')?.value;
+    const searchFilter = document.querySelector('#log-search')?.value?.toLowerCase();
+    
+    let filtered = [...this.logs];
+    
+    if (levelFilter) {
+      const minLevel = parseInt(levelFilter);
+      filtered = filtered.filter(log => log.level >= minLevel);
+    }
+    
+    if (searchFilter) {
+      filtered = filtered.filter(log => 
+        log.message.toLowerCase().includes(searchFilter) ||
+        (log.context && log.context.toLowerCase().includes(searchFilter)) ||
+        (log.details && JSON.stringify(log.details).toLowerCase().includes(searchFilter))
+      );
+    }
+    
+    return filtered;
+  }
+  
+  filterLogs() {
+    this.renderLogs();
+  }
+  
+  async loadLogsForDialog() {
+    try {
+      this.logs = await window.electronAPI.invoke('get-logs');
+      this.renderLogs();
+    } catch (error) {
+      console.error('Failed to load logs:', error);
+    }
+  }
+  
+  async copyLogEntry(logId) {
+    try {
+      const result = await window.electronAPI.invoke('copy-log-entry', logId);
+      if (result.success) {
+        this.showToast('Log entry copied to clipboard');
+      }
+    } catch (error) {
+      console.error('Failed to copy log entry:', error);
+    }
+  }
+  
+  toggleLogDetails(logId) {
+    const detailsDiv = document.querySelector(`#log-details-${logId}`);
+    if (detailsDiv) {
+      detailsDiv.style.display = detailsDiv.style.display === 'none' ? 'block' : 'none';
+    }
+  }
 }
 
 // Initialize the application when DOM is ready
+let app;
 document.addEventListener('DOMContentLoaded', () => {
-  new PerfectWorldAccountManager();
+  app = new PerfectWorldAccountManager();
 });

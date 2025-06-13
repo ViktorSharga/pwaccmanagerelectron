@@ -20,6 +20,18 @@ const validChannels = [
   'open-webview',
   'close-webview',
   'close-all-webviews',
+  // Logging channels
+  'get-logs',
+  'get-recent-errors',
+  'clear-logs',
+  'export-logs',
+  'copy-log-entry',
+  'set-log-level',
+  'get-current-operation',
+  'log-added',
+  'error-logged',
+  'operation-changed',
+  'logs-cleared',
 ];
 
 const api = {
