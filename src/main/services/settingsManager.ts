@@ -12,7 +12,7 @@ export class SettingsManager {
   private defaultSettings: Settings = {
     gamePath: '',
     launchDelay: 15, // Changed default to 15 seconds (within 10-60 range)
-    processMonitoringMode: 'normal',
+    processMonitoringMode: '3min', // Default to 3-minute monitoring interval
   };
 
   constructor() {

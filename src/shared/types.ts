@@ -18,7 +18,7 @@ export interface Account {
 export interface Settings {
   gamePath: string;
   launchDelay: number;
-  processMonitoringMode?: 'high' | 'normal' | 'low'; // New performance setting
+  processMonitoringMode?: 'disabled' | '1min' | '3min' | '5min'; // Process monitoring intervals
   windowBounds?: {
     x: number;
     y: number;

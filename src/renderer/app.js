@@ -447,17 +447,17 @@ class PerfectWorldAccountManager {
               </small>
             </div>
             <div class="form-group">
-              <label>Process Monitoring Performance</label>
+              <label>Process Monitoring</label>
               <select name="processMonitoringMode">
-                <option value="low" ${this.settings?.processMonitoringMode === 'low' ? 'selected' : ''}>Low (Best Performance)</option>
-                <option value="normal" ${this.settings?.processMonitoringMode === 'normal' || !this.settings?.processMonitoringMode ? 'selected' : ''}>Normal (Balanced)</option>
-                <option value="high" ${this.settings?.processMonitoringMode === 'high' ? 'selected' : ''}>High (Most Responsive)</option>
+                <option value="disabled" ${this.settings?.processMonitoringMode === 'disabled' ? 'selected' : ''}>Disabled (Manual Control Only)</option>
+                <option value="5min" ${this.settings?.processMonitoringMode === '5min' ? 'selected' : ''}>5 Minutes (Best Performance)</option>
+                <option value="3min" ${this.settings?.processMonitoringMode === '3min' || !this.settings?.processMonitoringMode ? 'selected' : ''}>3 Minutes (Balanced)</option>
+                <option value="1min" ${this.settings?.processMonitoringMode === '1min' ? 'selected' : ''}>1 Minute (Most Responsive)</option>
               </select>
               <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                Low: 5 min crash detection (minimal CPU usage)<br>
-                Normal: 2 min crash detection (balanced)<br>
-                High: 1 min crash detection (most responsive)<br>
-                <strong>Note:</strong> No constant monitoring - only checks when processes are running
+                <strong>Disabled:</strong> Processes remain "running" until manually closed<br>
+                <strong>1-5 Minutes:</strong> Check if game processes still exist at selected intervals<br>
+                <strong>Note:</strong> Only monitors when clients are actively running
               </small>
             </div>
           </form>

@@ -31,30 +31,42 @@ export class GameProcessManager extends EventEmitter {
     
     try {
       const settings = this.settingsManager.getSettings();
-      const mode = settings.processMonitoringMode || 'normal';
+      const mode = settings.processMonitoringMode || '3min';
       
       switch (mode) {
-        case 'high':
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 60000; // Much less frequent
+        case 'disabled':
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 0; // No monitoring
           break;
-        case 'low':
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 300000; // 5 minutes - very rare
+        case '1min':
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 60000; // 1 minute
           break;
-        default: // normal
-          this.LIGHTWEIGHT_CHECK_INTERVAL = 120000; // 2 minutes
+        case '3min':
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 180000; // 3 minutes
+          break;
+        case '5min':
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 300000; // 5 minutes
+          break;
+        default:
+          this.LIGHTWEIGHT_CHECK_INTERVAL = 180000; // Default to 3 minutes
           break;
       }
       
-      console.log(`Process monitoring mode: ${mode}, check interval: ${this.LIGHTWEIGHT_CHECK_INTERVAL}ms (only for crash detection)`);
+      console.log(`Process monitoring mode: ${mode}, check interval: ${this.LIGHTWEIGHT_CHECK_INTERVAL}ms`);
     } catch (error) {
       console.warn('Could not load performance settings, using defaults');
+      this.LIGHTWEIGHT_CHECK_INTERVAL = 180000; // Default to 3 minutes
     }
   }
 
   private startOptionalCrashDetection(): void {
-    // Only start crash detection if we have running processes
+    // Only start crash detection if monitoring is enabled and we have running processes
+    if (this.LIGHTWEIGHT_CHECK_INTERVAL === 0) {
+      console.log('Process monitoring is disabled - not starting crash detection');
+      return;
+    }
+    
     if (this.processes.size > 0 && !this.processCheckInterval) {
-      console.log('Starting optional crash detection...');
+      console.log(`Starting crash detection with ${this.LIGHTWEIGHT_CHECK_INTERVAL}ms interval...`);
       this.processCheckInterval = setInterval(() => {
         this.checkForCrashedProcesses();
       }, this.LIGHTWEIGHT_CHECK_INTERVAL);
@@ -65,7 +77,7 @@ export class GameProcessManager extends EventEmitter {
     if (this.processCheckInterval) {
       clearInterval(this.processCheckInterval);
       this.processCheckInterval = null;
-      console.log('Stopped crash detection - no processes to monitor');
+      console.log('Stopped crash detection');
     }
   }
 
@@ -122,9 +134,15 @@ export class GameProcessManager extends EventEmitter {
 
   private async checkForCrashedProcesses(): Promise<void> {
     try {
-      // Only run if we have processes to check
+      // Only run if we have processes to check and monitoring is enabled
       if (this.processes.size === 0) {
         this.stopCrashDetection();
+        return;
+      }
+      
+      // Skip if monitoring is disabled
+      if (this.LIGHTWEIGHT_CHECK_INTERVAL === 0) {
+        console.log('Monitoring disabled - skipping crash detection');
         return;
       }
       
@@ -134,14 +152,11 @@ export class GameProcessManager extends EventEmitter {
         let stillRunning = false;
         
         if (processInfo.pid === -1 || processInfo.pid === -2) {
-          // For processes without PID or in launching state, check if any ElementClient.exe is running
-          // This is less precise but better than nothing
-          try {
-            const currentPids = await this.getElementClientProcessesUltraLight();
-            stillRunning = currentPids.length > 0;
-            
-            // If in launching state (-2) and we find processes, try to associate one
-            if (processInfo.pid === -2 && currentPids.length > 0) {
+          // For processes without PID or in launching state
+          if (processInfo.pid === -2) {
+            // Still launching - try to associate with real PID
+            try {
+              const currentPids = await this.getElementClientProcessesUltraLight();
               const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
               const availablePids = currentPids.filter(pid => !assignedPids.has(pid));
               
@@ -149,14 +164,21 @@ export class GameProcessManager extends EventEmitter {
                 // Update with real PID
                 processInfo.pid = availablePids[0];
                 console.log(`🔄 Late association: ${processInfo.login} now has PID ${availablePids[0]}`);
+                stillRunning = true;
+              } else {
+                // Still launching, assume still running
+                stillRunning = true;
               }
+            } catch (error) {
+              console.warn(`Could not check ElementClient processes:`, error);
+              stillRunning = true; // Assume still running if we can't check
             }
-          } catch (error) {
-            console.warn(`Could not check ElementClient processes:`, error);
-            stillRunning = true; // Assume still running if we can't check
+          } else {
+            // PID is -1 (unknown) - in disabled mode, always assume running
+            stillRunning = true;
           }
         } else {
-          // For processes with PID, check specifically
+          // For processes with PID, check specifically if still exists
           stillRunning = await this.checkIfProcessExists(processInfo.pid);
         }
         
@@ -538,7 +560,7 @@ export class GameProcessManager extends EventEmitter {
   }
 
   updatePerformanceSettings(): void {
-    // Just update the intervals - monitoring is only active when we have processes
+    // Update the intervals based on new settings
     this.adjustPerformanceSettings();
     
     // Restart crash detection with new intervals if we have running processes
@@ -547,7 +569,8 @@ export class GameProcessManager extends EventEmitter {
       this.startOptionalCrashDetection();
     }
     
-    console.log('Process monitoring intervals updated');
+    const mode = this.settingsManager?.getSettings()?.processMonitoringMode || '3min';
+    console.log(`Process monitoring updated to: ${mode} (${this.LIGHTWEIGHT_CHECK_INTERVAL}ms interval)`);
   }
 
   destroy(): void {
