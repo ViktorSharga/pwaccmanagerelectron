@@ -229,7 +229,7 @@ export function setupIpcHandlers() {
       }
       console.log(`📨 IPC close-game completed successfully`);
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error(`📨 IPC close-game failed:`, error);
       return { success: false, error: error.message };
     }

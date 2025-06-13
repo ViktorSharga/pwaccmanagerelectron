@@ -144,9 +144,9 @@ export class LoggingService extends EventEmitter {
     if (level === LogLevel.ERROR && details instanceof Error) {
       entry.stackTrace = details.stack;
       entry.details = {
+        ...details,
         name: details.name,
-        message: details.message,
-        ...details
+        message: details.message
       };
     }
 
