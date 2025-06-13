@@ -109,9 +109,12 @@ export class GameProcessManager extends EventEmitter {
   private async scanExistingProcesses(): Promise<void> {
     try {
       // Scan for existing ElementClient.exe processes that might be running
-      const existingPids = await this.getElementClientProcessesUltraLight();
-      if (existingPids.length > 0) {
-        console.log(`🔍 GameProcessManager startup: Found ${existingPids.length} existing ElementClient.exe processes: [${existingPids.join(', ')}]`);
+      const existingProcesses = await this.getElementClientProcesses();
+      if (existingProcesses.length > 0) {
+        console.log(`🔍 GameProcessManager startup: Found ${existingProcesses.length} existing ElementClient.exe processes`);
+        existingProcesses.forEach(proc => {
+          console.log(`  📌 PID ${proc.pid} started at ${proc.startTime.toLocaleString()}`);
+        });
         console.log('📌 These processes will be considered "pre-existing" and excluded from new launch detection');
       } else {
         console.log('🔍 GameProcessManager startup: No existing ElementClient.exe processes found');
@@ -121,28 +124,81 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
-  private async getElementClientProcessesUltraLight(): Promise<number[]> {
+  private async getElementClientProcesses(): Promise<Array<{pid: number, startTime: Date}>> {
     if (process.platform !== 'win32') {
       return [];
     }
     
     try {
-      // Use the fastest possible method - just check if processes exist
-      const { stdout } = await execAsync(`tasklist /fi "imagename eq ElementClient.exe" /fo csv /nh`, { timeout: 2000 });
-      const lines = stdout.split('\n').filter(line => line.trim() && line.includes('ElementClient.exe'));
+      // Use WMI for reliable process detection - but only when needed
+      // WMI is automatically cleaned up when the command completes
+      const wmiQuery = `wmic process where "name='ElementClient.exe'" get ProcessId,CreationDate /format:csv`;
+      const { stdout } = await execAsync(wmiQuery, { 
+        timeout: 5000,
+        // Ensure proper cleanup
+        killSignal: 'SIGTERM'
+      });
       
-      const pids: number[] = [];
+      const lines = stdout.split('\n').filter(line => line.trim() && line.includes('ElementClient.exe'));
+      const processes: Array<{pid: number, startTime: Date}> = [];
+      
       for (const line of lines) {
-        // Extract PID more efficiently
-        const match = line.match(/"(\d+)"/);
-        if (match) {
-          pids.push(parseInt(match[1]));
+        const parts = line.split(',');
+        if (parts.length >= 3) {
+          const creationDate = parts[1]?.trim();
+          const pidStr = parts[2]?.trim();
+          
+          if (pidStr && !isNaN(parseInt(pidStr))) {
+            const pid = parseInt(pidStr);
+            let startTime = new Date();
+            
+            // Parse WMI date format: 20231025143022.000000+000
+            if (creationDate && creationDate.length >= 14) {
+              const year = parseInt(creationDate.substring(0, 4));
+              const month = parseInt(creationDate.substring(4, 6)) - 1;
+              const day = parseInt(creationDate.substring(6, 8));
+              const hour = parseInt(creationDate.substring(8, 10));
+              const minute = parseInt(creationDate.substring(10, 12));
+              const second = parseInt(creationDate.substring(12, 14));
+              
+              if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+                startTime = new Date(year, month, day, hour, minute, second);
+              }
+            }
+            
+            processes.push({ pid, startTime });
+          }
         }
       }
       
-      return pids;
+      console.log(`🔍 WMI query completed: found ${processes.length} ElementClient processes`);
+      return processes;
     } catch (error) {
-      console.error('Error getting ElementClient PIDs:', error);
+      console.error('Error getting ElementClient processes via WMI:', error);
+      // Fallback to tasklist if WMI fails
+      return await this.getElementClientProcessesFallback();
+    }
+  }
+
+  private async getElementClientProcessesFallback(): Promise<Array<{pid: number, startTime: Date}>> {
+    try {
+      const { stdout } = await execAsync(`tasklist /fi "imagename eq ElementClient.exe" /fo csv /nh`, { timeout: 2000 });
+      const lines = stdout.split('\n').filter(line => line.trim() && line.includes('ElementClient.exe'));
+      
+      const processes: Array<{pid: number, startTime: Date}> = [];
+      for (const line of lines) {
+        const match = line.match(/"(\d+)"/);
+        if (match) {
+          processes.push({ 
+            pid: parseInt(match[1]), 
+            startTime: new Date() // Approximate start time
+          });
+        }
+      }
+      
+      return processes;
+    } catch (error) {
+      console.error('Error with tasklist fallback:', error);
       return [];
     }
   }
@@ -184,27 +240,38 @@ export class GameProcessManager extends EventEmitter {
         if (processInfo.pid === -1 || processInfo.pid === -2) {
           // For processes without PID or in launching state
           if (processInfo.pid === -2) {
-            // Still launching - try to associate with real PID
-            try {
-              const currentPids = await this.getElementClientProcessesUltraLight();
-              const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
-              const availablePids = currentPids.filter(pid => !assignedPids.has(pid));
-              
-              if (availablePids.length > 0) {
-                // Update with real PID
-                processInfo.pid = availablePids[0];
-                console.log(`🔄 Late association: ${processInfo.login} now has PID ${availablePids[0]}`);
-                stillRunning = true;
-              } else {
-                // Still launching, assume still running
-                stillRunning = true;
+            // Still launching - only try to find PID if it's been a reasonable time
+            const processAge = Date.now() - (processInfo as any).launchTime || 0;
+            if (processAge > 10000) { // Only try after 10 seconds
+              try {
+                const currentProcesses = await this.getElementClientProcesses();
+                const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
+                
+                // Look for very recent processes not yet assigned
+                const recentProcesses = currentProcesses.filter(proc => {
+                  const processAge = Date.now() - proc.startTime.getTime();
+                  return processAge < 30000 && !assignedPids.has(proc.pid); // Less than 30 seconds old
+                });
+                
+                if (recentProcesses.length > 0) {
+                  const targetProcess = recentProcesses[0];
+                  processInfo.pid = targetProcess.pid;
+                  console.log(`🔄 Late association: ${processInfo.login} now has PID ${targetProcess.pid}`);
+                  stillRunning = true;
+                } else {
+                  // Still launching or failed launch, assume still running for now
+                  stillRunning = true;
+                }
+              } catch (error) {
+                console.warn(`Could not check ElementClient processes:`, error);
+                stillRunning = true; // Assume still running if we can't check
               }
-            } catch (error) {
-              console.warn(`Could not check ElementClient processes:`, error);
-              stillRunning = true; // Assume still running if we can't check
+            } else {
+              stillRunning = true; // Too early to check
             }
           } else {
-            // PID is -1 (unknown) - in disabled mode, always assume running
+            // PID is -1 (unknown) - when monitoring is disabled, always assume running
+            // When monitoring is enabled, we still assume running since we can't verify
             stillRunning = true;
           }
         } else {
@@ -265,10 +332,6 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
-  private async checkProcesses(): Promise<void> {
-    // Legacy method - now just calls crash detection
-    await this.checkForCrashedProcesses();
-  }
 
   private async findElementClientPath(folderPath: string): Promise<string> {
     try {
@@ -314,12 +377,15 @@ export class GameProcessManager extends EventEmitter {
       try {
         const gameExePath = await this.findElementClientPath(gamePath);
         
-        // Get ALL ElementClient.exe PIDs before launch (including pre-existing ones not tracked by us)
-        const allCurrentPids = await this.getElementClientProcessesUltraLight();
-        console.log(`📊 Pre-launch: Found ${allCurrentPids.length} existing ElementClient.exe processes: [${allCurrentPids.join(', ')}]`);
+        // Get ALL existing ElementClient.exe processes before launch (only when needed)
+        const existingProcesses = await this.getElementClientProcesses();
+        console.log(`📊 Pre-launch: Found ${existingProcesses.length} existing ElementClient.exe processes`);
+        existingProcesses.forEach(proc => {
+          console.log(`  📌 PID ${proc.pid} (started: ${proc.startTime.toLocaleString()})`);
+        });
         
-        // Create set of all existing PIDs to exclude from new process detection
-        const pidsBeforeLaunch = new Set(allCurrentPids);
+        // Record launch time for reliable new process detection
+        const launchTime = new Date();
         
         const batContent = this.generateBatchFile(account, gameExePath);
         
@@ -367,7 +433,8 @@ export class GameProcessManager extends EventEmitter {
           pid: -2, // Special marker for "launching" state
           login: account.login,
           windowTitle: '',
-        });
+          launchTime: launchTime // Track when this was launched
+        } as any);
         
         // Set initial status to running (will be updated when we find the actual process)
         this.emit('status-update', account.id, true);
@@ -376,7 +443,7 @@ export class GameProcessManager extends EventEmitter {
         setTimeout(() => fs.unlink(batPath).catch(() => {}), 5000);
         
         // Wait and find the new ElementClient.exe process - resolve when PID is found
-        this.findNewElementClientProcess(account, pidsBeforeLaunch, resolve, reject);
+        this.findNewElementClientProcess(account, existingProcesses, launchTime, resolve, reject);
       } catch (error) {
         reject(error);
       }
@@ -385,45 +452,66 @@ export class GameProcessManager extends EventEmitter {
 
   private async findNewElementClientProcess(
     account: Account, 
-    pidsBeforeLaunch: Set<number>, 
+    existingProcesses: Array<{pid: number, startTime: Date}>, 
+    launchTime: Date,
     resolve: () => void, 
-    reject: (error: any) => void
+    _reject: (error: any) => void
   ): Promise<void> {
-    const maxAttempts = 6; // Increased attempts for better detection
+    const maxAttempts = 5;
     let attempts = 0;
+    
+    // Create set of existing PIDs to exclude
+    const existingPids = new Set(existingProcesses.map(p => p.pid));
     
     const findProcess = async (): Promise<void> => {
       attempts++;
       
       try {
-        // Use ultra-light method to find new processes
-        const currentPids = await this.getElementClientProcessesUltraLight();
-        const newPids = currentPids.filter(pid => !pidsBeforeLaunch.has(pid));
+        console.log(`🔍 Attempt ${attempts}/${maxAttempts} for ${account.login} (launched at ${launchTime.toLocaleTimeString()})`);
         
-        console.log(`🔍 Attempt ${attempts}/${maxAttempts} for ${account.login}:`);
-        console.log(`  📊 Current PIDs: [${currentPids.join(', ')}]`);
-        console.log(`  🆕 New PIDs: [${newPids.join(', ')}]`);
+        // Get current processes with start times - use WMI only when needed
+        const currentProcesses = await this.getElementClientProcesses();
         
-        // Filter out PIDs that are already assigned to other accounts
-        const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
-        const availablePids = newPids.filter(pid => !assignedPids.has(pid));
+        // Find processes that started after our launch time and aren't in existing PIDs
+        const candidateProcesses = currentProcesses.filter(proc => {
+          const isNew = !existingPids.has(proc.pid);
+          const startedAfterLaunch = proc.startTime >= launchTime;
+          
+          console.log(`  📊 PID ${proc.pid}: new=${isNew}, startedAfter=${startedAfterLaunch} (started: ${proc.startTime.toLocaleTimeString()})`);
+          
+          return isNew && startedAfterLaunch;
+        });
         
+        // Filter out PIDs already assigned to other accounts in our tracking
+        const assignedPids = new Set(
+          Array.from(this.processes.values())
+            .map(p => p.pid)
+            .filter(p => p > 0)
+        );
+        
+        const availableProcesses = candidateProcesses.filter(proc => !assignedPids.has(proc.pid));
+        
+        console.log(`  🆕 Candidate processes: [${candidateProcesses.map(p => p.pid).join(', ')}]`);
         console.log(`  🏷️ Already assigned PIDs: [${Array.from(assignedPids).join(', ')}]`);
-        console.log(`  ✅ Available PIDs: [${availablePids.join(', ')}]`);
+        console.log(`  ✅ Available processes: [${availableProcesses.map(p => p.pid).join(', ')}]`);
         
-        if (availablePids.length > 0) {
-          // Take the first available PID
-          const targetPid = availablePids[0];
+        if (availableProcesses.length > 0) {
+          // Take the process that started closest to our launch time
+          const targetProcess = availableProcesses.reduce((closest, current) => {
+            const closestDiff = Math.abs(closest.startTime.getTime() - launchTime.getTime());
+            const currentDiff = Math.abs(current.startTime.getTime() - launchTime.getTime());
+            return currentDiff < closestDiff ? current : closest;
+          });
           
           // Update the existing entry with the real PID
           this.processes.set(account.id, {
             accountId: account.id,
-            pid: targetPid,
+            pid: targetProcess.pid,
             login: account.login,
             windowTitle: '',
           });
           
-          console.log(`✅ Associated ElementClient.exe process ${targetPid} with account ${account.login}`);
+          console.log(`✅ Associated ElementClient.exe process ${targetProcess.pid} with account ${account.login} (started: ${targetProcess.startTime.toLocaleTimeString()})`);
           this.emit('status-update', account.id, true);
           
           // Start crash detection now that we have a process to monitor
@@ -436,11 +524,12 @@ export class GameProcessManager extends EventEmitter {
         
         // If no new process found and we haven't reached max attempts, try again
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 2500); // Slightly longer delay
+          setTimeout(findProcess, 3000); // 3 second delay between attempts
         } else {
-          console.warn(`Could not find ElementClient.exe process for account ${account.login} after ${maxAttempts} attempts`);
+          console.warn(`⚠️ Could not find ElementClient.exe process for account ${account.login} after ${maxAttempts} attempts`);
+          console.warn(`⚠️ The process may have started but couldn't be reliably associated`);
           
-          // If we still can't find a PID, create a dummy entry so we can at least try to kill processes by name
+          // Mark as unknown PID but still running
           this.processes.set(account.id, {
             accountId: account.id,
             pid: -1, // Special marker for "unknown PID"
@@ -448,17 +537,17 @@ export class GameProcessManager extends EventEmitter {
             windowTitle: '',
           });
           
-          console.log(`Created fallback process entry for ${account.login} (PID unknown)`);
+          console.log(`Created fallback process entry for ${account.login} (PID unknown - but likely running)`);
           this.emit('status-update', account.id, true);
           this.startOptionalCrashDetection();
           
-          // Resolve even with fallback - launch is complete
+          // Resolve - launch is considered complete even with unknown PID
           resolve();
         }
       } catch (error) {
         console.error('Error finding new ElementClient process:', error);
         if (attempts < maxAttempts) {
-          setTimeout(findProcess, 2500);
+          setTimeout(findProcess, 3000);
         } else {
           // Create fallback entry even on error
           this.processes.set(account.id, {
@@ -476,8 +565,8 @@ export class GameProcessManager extends EventEmitter {
       }
     };
     
-    // Start looking for the process after a delay
-    setTimeout(findProcess, 1500);
+    // Start looking for the process after a delay to allow process startup
+    setTimeout(findProcess, 2000);
   }
 
   private generateBatchFile(account: Account, gameExePath: string): string {
@@ -548,44 +637,56 @@ export class GameProcessManager extends EventEmitter {
 
     try {
       if (processInfo.pid === -1 || processInfo.pid === -2) {
-        // Handle processes without known PID or in launching state
-        console.log(`Attempting to close ElementClient.exe processes for account ${processInfo.login} (PID ${processInfo.pid === -2 ? 'launching' : 'unknown'})`);
+        // CRITICAL FIX: Never kill all processes when PID is unknown
+        console.warn(`⚠️ Cannot close ${processInfo.login} - PID is ${processInfo.pid === -2 ? 'still launching' : 'unknown'}`);
+        console.warn(`⚠️ To avoid killing unrelated processes, this account will be marked as stopped without force-killing`);
         
-        if (process.platform === 'win32') {
-          // First try to find processes by tasklist and kill them
-          try {
-            const { stdout } = await execAsync(`tasklist /fi "imagename eq ElementClient.exe" /fo csv /nh`);
-            const lines = stdout.split('\n').filter(line => line.includes('ElementClient.exe'));
-            
-            if (lines.length > 0) {
-              // Kill all ElementClient processes (this is aggressive but necessary when PID is unknown)
-              await execAsync(`taskkill /IM ElementClient.exe /F`);
-              console.log(`Killed ElementClient.exe processes by image name`);
-            } else {
-              console.log(`No ElementClient.exe processes found to kill`);
-            }
-          } catch (killError) {
-            console.warn(`Failed to kill ElementClient.exe by image name:`, killError);
-          }
+        // Just mark as stopped - don't kill anything when PID is unknown
+        this.processes.delete(accountId);
+        this.emit('status-update', accountId, false);
+        this.accountLaunchData.delete(accountId);
+        
+        if (this.processes.size === 0) {
+          this.stopCrashDetection();
         }
+        
+        console.log(`Marked ${processInfo.login} as stopped (PID was unknown)`);
+        return;
       } else {
-        // Handle processes with known PID
+        // Handle processes with known PID - ONLY kill the specific PID
         console.log(`Attempting to close ElementClient.exe process ${processInfo.pid} for account ${processInfo.login}`);
         
         if (process.platform === 'win32') {
-          const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
-          console.log(`Taskkill output: ${stdout}`);
-          if (stderr) console.error(`Taskkill error: ${stderr}`);
+          // First verify the PID still exists and belongs to ElementClient.exe
+          try {
+            const { stdout: verifyOutput } = await execAsync(`tasklist /fi "pid eq ${processInfo.pid}" /fo csv /nh`);
+            if (!verifyOutput.includes('ElementClient.exe')) {
+              console.log(`Process ${processInfo.pid} is not ElementClient.exe or already closed`);
+              this.processes.delete(accountId);
+              this.emit('status-update', accountId, false);
+              this.accountLaunchData.delete(accountId);
+              return;
+            }
+            
+            // Kill only the specific PID
+            const { stdout, stderr } = await execAsync(`taskkill /PID ${processInfo.pid} /F`);
+            console.log(`Taskkill output: ${stdout}`);
+            if (stderr) console.error(`Taskkill error: ${stderr}`);
+          } catch (verifyError) {
+            console.warn(`Could not verify or kill PID ${processInfo.pid}:`, verifyError);
+          }
         } else {
-          process.kill(processInfo.pid, 'SIGTERM');
+          try {
+            process.kill(processInfo.pid, 'SIGTERM');
+          } catch (killError) {
+            console.warn(`Could not kill PID ${processInfo.pid}:`, killError);
+          }
         }
       }
       
-      // Remove from our tracking immediately
+      // Remove from our tracking
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
-      
-      // Clean up launch data for user-initiated closures (but keep user closure flag for potential restart prevention)
       this.accountLaunchData.delete(accountId);
       
       // Stop crash detection if no more processes
@@ -600,8 +701,6 @@ export class GameProcessManager extends EventEmitter {
       // Even if killing failed, remove from tracking and update status
       this.processes.delete(accountId);
       this.emit('status-update', accountId, false);
-      
-      // Clean up launch data
       this.accountLaunchData.delete(accountId);
       
       // Stop crash detection if no more processes
