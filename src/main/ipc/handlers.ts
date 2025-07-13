@@ -358,6 +358,70 @@ export function setupIpcHandlers() {
     return gameProcessManager.getRunningProcesses();
   });
 
+  // Isolated Start Mode handlers
+  ipcMain.handle('check-admin-privileges', async () => {
+    try {
+      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
+      const hasAdmin = await systemIdManager.checkAdminPrivileges();
+      return { success: true, hasAdmin };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('get-current-system-identifiers', async () => {
+    try {
+      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
+      const identifiers = await systemIdManager.getCurrentIdentifiers();
+      return { success: true, identifiers };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('restore-original-system-identifiers', async () => {
+    try {
+      await gameProcessManager.restoreOriginalSystemIdentifiers();
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('test-isolated-start', async () => {
+    try {
+      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
+      
+      // Check admin privileges
+      const hasAdmin = await systemIdManager.checkAdminPrivileges();
+      if (!hasAdmin) {
+        return { 
+          success: false, 
+          error: 'Administrator privileges required. Please run the application as administrator.' 
+        };
+      }
+
+      // Get current identifiers
+      const originalIdentifiers = await systemIdManager.getCurrentIdentifiers();
+      
+      // Generate and apply new identifiers
+      const newIdentifiers = systemIdManager.generateRandomIdentifiers();
+      await systemIdManager.applyIdentifiers(newIdentifiers);
+      
+      // Verify changes
+      const verifyIdentifiers = await systemIdManager.getCurrentIdentifiers();
+      
+      return { 
+        success: true, 
+        original: originalIdentifiers,
+        applied: newIdentifiers,
+        verified: verifyIdentifiers
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   gameProcessManager.on('status-update', (accountId: string, running: boolean) => {
     const processInfo = running
       ? gameProcessManager.getRunningProcesses().find((p) => p.accountId === accountId)

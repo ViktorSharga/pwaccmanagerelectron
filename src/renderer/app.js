@@ -535,6 +535,27 @@ class PerfectWorldAccountManager {
                   When monitoring detects a client has crashed (not manually closed), automatically restart it.
                 </small>
               </div>
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" name="isolatedStartMode" id="isolatedStartMode" ${this.settings?.isolatedStartMode ? 'checked' : ''}>
+                  Enable Isolated Start Mode
+                </label>
+                <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
+                  <strong>⚠️ Requires Administrator Privileges</strong><br>
+                  Changes system identifiers (Windows ID, Computer Name, Host Name) before each client launch.<br>
+                  Helps prevent multi-client detection by generating unique system fingerprints.
+                </small>
+                <div id="isolatedStartDetails" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; display: none;">
+                  <strong>System Identifiers:</strong>
+                  <div id="systemIdentifiers" style="font-family: monospace; font-size: 11px; margin-top: 5px;">
+                    Loading...
+                  </div>
+                  <div style="margin-top: 10px;">
+                    <button type="button" id="btnTestIsolatedStart" class="btn" style="background: #007acc; color: white; margin-right: 10px;">Test Identifier Change</button>
+                    <button type="button" id="btnRestoreIdentifiers" class="btn" style="background: #dc3545; color: white;">Restore Original Values</button>
+                  </div>
+                </div>
+              </div>
             </form>
           </div>
           
@@ -626,6 +647,43 @@ class PerfectWorldAccountManager {
           }
         };
       }
+
+      // Isolated Start Mode handlers
+      const isolatedStartCheckbox = dialog.querySelector('#isolatedStartMode');
+      const isolatedStartDetails = dialog.querySelector('#isolatedStartDetails');
+      const btnTestIsolatedStart = dialog.querySelector('#btnTestIsolatedStart');
+      const btnRestoreIdentifiers = dialog.querySelector('#btnRestoreIdentifiers');
+      const systemIdentifiersDiv = dialog.querySelector('#systemIdentifiers');
+
+      if (isolatedStartCheckbox) {
+        // Show/hide details based on checkbox
+        isolatedStartCheckbox.onchange = () => {
+          if (isolatedStartDetails) {
+            isolatedStartDetails.style.display = isolatedStartCheckbox.checked ? 'block' : 'none';
+          }
+          if (isolatedStartCheckbox.checked) {
+            this.loadCurrentSystemIdentifiers(systemIdentifiersDiv);
+          }
+        };
+
+        // Load identifiers if initially checked
+        if (isolatedStartCheckbox.checked && isolatedStartDetails) {
+          isolatedStartDetails.style.display = 'block';
+          this.loadCurrentSystemIdentifiers(systemIdentifiersDiv);
+        }
+      }
+
+      if (btnTestIsolatedStart) {
+        btnTestIsolatedStart.onclick = async () => {
+          await this.testIsolatedStart(systemIdentifiersDiv);
+        };
+      }
+
+      if (btnRestoreIdentifiers) {
+        btnRestoreIdentifiers.onclick = async () => {
+          await this.restoreSystemIdentifiers(systemIdentifiersDiv);
+        };
+      }
       
       // Log tab event handlers
       const logLevelFilter = dialog.querySelector('#log-level-filter');
@@ -691,6 +749,7 @@ class PerfectWorldAccountManager {
           launchDelay: parseInt(formData.get('launchDelay'), 10),
           processMonitoringMode: formData.get('processMonitoringMode'),
           autoRestartCrashedClients: formData.get('autoRestartCrashedClients') === 'on',
+          isolatedStartMode: formData.get('isolatedStartMode') === 'on',
         };
         
         try {
@@ -1611,6 +1670,109 @@ class PerfectWorldAccountManager {
     const detailsDiv = document.querySelector(`#log-details-${logId}`);
     if (detailsDiv) {
       detailsDiv.style.display = detailsDiv.style.display === 'none' ? 'block' : 'none';
+    }
+  }
+
+  // Isolated Start Mode helper methods
+  async loadCurrentSystemIdentifiers(targetDiv) {
+    if (!targetDiv) return;
+    
+    try {
+      targetDiv.innerHTML = 'Loading...';
+      
+      // Check admin privileges first
+      const adminResult = await window.electronAPI.invoke('check-admin-privileges');
+      if (!adminResult.success) {
+        targetDiv.innerHTML = `<span style="color: red;">Error: ${adminResult.error}</span>`;
+        return;
+      }
+
+      if (!adminResult.hasAdmin) {
+        targetDiv.innerHTML = '<span style="color: orange;">⚠️ No administrator privileges detected. Isolated start mode will not work.</span>';
+        return;
+      }
+
+      // Load current identifiers
+      const result = await window.electronAPI.invoke('get-current-system-identifiers');
+      if (result.success) {
+        const identifiers = result.identifiers;
+        targetDiv.innerHTML = `
+          <div style="color: green;">✅ Administrator privileges detected</div>
+          <div style="margin-top: 5px;">
+            <strong>Windows Product ID:</strong> ${identifiers.windowsProductId}<br>
+            <strong>Computer Name:</strong> ${identifiers.computerName}<br>
+            <strong>Host Name:</strong> ${identifiers.hostName}
+          </div>
+        `;
+      } else {
+        targetDiv.innerHTML = `<span style="color: red;">Error loading identifiers: ${result.error}</span>`;
+      }
+    } catch (error) {
+      targetDiv.innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
+    }
+  }
+
+  async testIsolatedStart(targetDiv) {
+    if (!targetDiv) return;
+    
+    try {
+      targetDiv.innerHTML = 'Testing isolated start mode...';
+      
+      const result = await window.electronAPI.invoke('test-isolated-start');
+      if (result.success) {
+        targetDiv.innerHTML = `
+          <div style="color: green;">✅ Test completed successfully!</div>
+          <div style="margin-top: 5px;">
+            <strong>Original:</strong><br>
+            &nbsp;&nbsp;Product ID: ${result.original.windowsProductId}<br>
+            &nbsp;&nbsp;Computer: ${result.original.computerName}<br>
+            &nbsp;&nbsp;Host: ${result.original.hostName}<br>
+            <strong>Applied:</strong><br>
+            &nbsp;&nbsp;Product ID: ${result.applied.windowsProductId}<br>
+            &nbsp;&nbsp;Computer: ${result.applied.computerName}<br>
+            &nbsp;&nbsp;Host: ${result.applied.hostName}<br>
+            <strong>Verified:</strong><br>
+            &nbsp;&nbsp;Product ID: ${result.verified.windowsProductId}<br>
+            &nbsp;&nbsp;Computer: ${result.verified.computerName}<br>
+            &nbsp;&nbsp;Host: ${result.verified.hostName}
+          </div>
+          <div style="margin-top: 5px; color: orange;">
+            ⚠️ System identifiers have been changed! Use "Restore Original Values" to revert.
+          </div>
+        `;
+        this.showToast('Isolated start test completed successfully');
+      } else {
+        targetDiv.innerHTML = `<span style="color: red;">Test failed: ${result.error}</span>`;
+        this.showErrorDialog('Isolated Start Test Failed', result.error);
+      }
+    } catch (error) {
+      targetDiv.innerHTML = `<span style="color: red;">Test error: ${error.message}</span>`;
+      this.showErrorDialog('Isolated Start Test Error', error.message);
+    }
+  }
+
+  async restoreSystemIdentifiers(targetDiv) {
+    if (!targetDiv) return;
+    
+    try {
+      targetDiv.innerHTML = 'Restoring original system identifiers...';
+      
+      const result = await window.electronAPI.invoke('restore-original-system-identifiers');
+      if (result.success) {
+        targetDiv.innerHTML = '<div style="color: green;">✅ Original system identifiers restored successfully!</div>';
+        this.showToast('Original system identifiers restored');
+        
+        // Reload current identifiers to show the restored values
+        setTimeout(() => {
+          this.loadCurrentSystemIdentifiers(targetDiv);
+        }, 1000);
+      } else {
+        targetDiv.innerHTML = `<span style="color: red;">Restore failed: ${result.error}</span>`;
+        this.showErrorDialog('Restore Failed', result.error);
+      }
+    } catch (error) {
+      targetDiv.innerHTML = `<span style="color: red;">Restore error: ${error.message}</span>`;
+      this.showErrorDialog('Restore Error', error.message);
     }
   }
 }

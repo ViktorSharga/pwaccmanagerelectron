@@ -20,6 +20,13 @@ export interface Settings {
   launchDelay: number;
   processMonitoringMode?: 'disabled' | '1min' | '3min' | '5min'; // Process monitoring intervals
   autoRestartCrashedClients?: boolean; // Auto-restart clients when they crash (only when monitoring enabled)
+  isolatedStartMode?: boolean; // Enable isolated start mode with system identifier spoofing
+  originalSystemIdentifiers?: {
+    windowsProductId: string;
+    computerName: string;
+    hostName: string;
+    timestamp: number;
+  };
   windowBounds?: {
     x: number;
     y: number;

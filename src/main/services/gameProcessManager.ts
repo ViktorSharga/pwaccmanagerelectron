@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
+import { SystemIdentifierManager } from './systemIdentifierManager';
 
 const execAsync = promisify(exec);
 
@@ -17,12 +18,14 @@ export class GameProcessManager extends EventEmitter {
   > = new Map();
   private LIGHTWEIGHT_CHECK_INTERVAL = 5000; // Quick checks interval (configurable)
   private settingsManager: any; // Will be injected
+  private systemIdentifierManager: SystemIdentifierManager;
   private userInitiatedClosures: Set<string> = new Set(); // Track accounts closed by user action
   private accountLaunchData: Map<string, { account: Account; gamePath: string }> = new Map(); // Store launch data for restarts
 
   constructor(settingsManager?: any) {
     super();
     this.settingsManager = settingsManager;
+    this.systemIdentifierManager = new SystemIdentifierManager();
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     logger.info(
@@ -590,6 +593,11 @@ export class GameProcessManager extends EventEmitter {
     return new Promise((resolve, reject) => {
       (async () => {
         try {
+          // Check if isolated start mode is enabled
+          const settings = this.settingsManager?.getSettings();
+          if (settings?.isolatedStartMode) {
+            await this.handleIsolatedStart();
+          }
           // Get ALL existing ElementClient.exe processes before launch
           const existingProcesses = await this.getElementClientProcesses();
           logger.info(
@@ -1171,6 +1179,87 @@ export class GameProcessManager extends EventEmitter {
     console.log(
       `Process monitoring updated to: ${mode} (${this.LIGHTWEIGHT_CHECK_INTERVAL}ms interval)`
     );
+  }
+
+  /**
+   * Handle isolated start mode - change system identifiers before launch
+   */
+  private async handleIsolatedStart(): Promise<void> {
+    try {
+      logger.info('Isolated start mode enabled - applying system identifier changes', null, 'ISOLATED_START');
+
+      // Check admin privileges first
+      const hasAdmin = await this.systemIdentifierManager.checkAdminPrivileges();
+      if (!hasAdmin) {
+        throw new Error(
+          'Administrator privileges required for isolated start mode. Please run the application as administrator.'
+        );
+      }
+
+      // Store original identifiers if not already stored
+      const storedOriginal = await this.settingsManager.getOriginalSystemIdentifiers();
+      if (!storedOriginal) {
+        const originalIdentifiers = await this.systemIdentifierManager.getCurrentIdentifiers();
+        await this.settingsManager.storeOriginalSystemIdentifiers(originalIdentifiers);
+        this.systemIdentifierManager.storeOriginalIdentifiers(originalIdentifiers);
+        logger.info('Original system identifiers stored for first time', originalIdentifiers, 'ISOLATED_START');
+      } else {
+        // Use stored original identifiers
+        this.systemIdentifierManager.storeOriginalIdentifiers(storedOriginal);
+        logger.info('Using previously stored original identifiers', storedOriginal, 'ISOLATED_START');
+      }
+
+      // Generate new random identifiers
+      const newIdentifiers = this.systemIdentifierManager.generateRandomIdentifiers();
+      logger.info('Generated new system identifiers', newIdentifiers, 'ISOLATED_START');
+
+      // Apply the new identifiers
+      await this.systemIdentifierManager.applyIdentifiers(newIdentifiers);
+
+      logger.info('Isolated start mode - system identifiers applied successfully', null, 'ISOLATED_START');
+    } catch (error) {
+      logger.error('Failed to apply isolated start mode', error, 'ISOLATED_START');
+      throw new Error(`Isolated start mode failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Restore original system identifiers
+   */
+  async restoreOriginalSystemIdentifiers(): Promise<void> {
+    try {
+      logger.info('Restoring original system identifiers', null, 'ISOLATED_START');
+
+      // Check admin privileges first
+      const hasAdmin = await this.systemIdentifierManager.checkAdminPrivileges();
+      if (!hasAdmin) {
+        throw new Error(
+          'Administrator privileges required to restore system identifiers. Please run the application as administrator.'
+        );
+      }
+
+      // Get stored original identifiers
+      const storedOriginal = await this.settingsManager.getOriginalSystemIdentifiers();
+      if (!storedOriginal) {
+        throw new Error('No original system identifiers found. Cannot restore.');
+      }
+
+      // Apply original identifiers
+      this.systemIdentifierManager.storeOriginalIdentifiers(storedOriginal);
+      await this.systemIdentifierManager.restoreOriginalIdentifiers();
+
+      logger.info('Original system identifiers restored successfully', null, 'ISOLATED_START');
+    } catch (error) {
+      logger.error('Failed to restore original system identifiers', error, 'ISOLATED_START');
+      throw error;
+    }
+  }
+
+  /**
+   * Get system identifier manager for external access
+   */
+  getSystemIdentifierManager(): SystemIdentifierManager {
+    return this.systemIdentifierManager;
   }
 
   destroy(): void {

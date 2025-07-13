@@ -32,6 +32,11 @@ const validChannels = [
   'error-logged',
   'operation-changed',
   'logs-cleared',
+  // Isolated Start Mode channels
+  'check-admin-privileges',
+  'get-current-system-identifiers',
+  'restore-original-system-identifiers',
+  'test-isolated-start',
 ];
 
 const api = {

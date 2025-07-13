@@ -14,6 +14,8 @@ export class SettingsManager {
     launchDelay: 15, // Changed default to 15 seconds (within 10-60 range)
     processMonitoringMode: '3min', // Default to 3-minute monitoring interval
     autoRestartCrashedClients: false, // Default to manual restart only
+    isolatedStartMode: false, // Default to regular start mode
+    originalSystemIdentifiers: undefined, // No original identifiers stored initially
   };
 
   constructor() {
@@ -103,5 +105,41 @@ export class SettingsManager {
 
   getWindowBounds(): { x: number; y: number; width: number; height: number } | undefined {
     return this.store.get('settings').windowBounds;
+  }
+
+  /**
+   * Store original system identifiers for restoration
+   */
+  async storeOriginalSystemIdentifiers(identifiers: {
+    windowsProductId: string;
+    computerName: string;
+    hostName: string;
+    timestamp: number;
+  }): Promise<void> {
+    const settings = await this.getSettings();
+    settings.originalSystemIdentifiers = identifiers;
+    await this.saveSettings(settings);
+  }
+
+  /**
+   * Get stored original system identifiers
+   */
+  async getOriginalSystemIdentifiers(): Promise<{
+    windowsProductId: string;
+    computerName: string;
+    hostName: string;
+    timestamp: number;
+  } | undefined> {
+    const settings = await this.getSettings();
+    return settings.originalSystemIdentifiers;
+  }
+
+  /**
+   * Clear stored original system identifiers
+   */
+  async clearOriginalSystemIdentifiers(): Promise<void> {
+    const settings = await this.getSettings();
+    settings.originalSystemIdentifiers = undefined;
+    await this.saveSettings(settings);
   }
 }
