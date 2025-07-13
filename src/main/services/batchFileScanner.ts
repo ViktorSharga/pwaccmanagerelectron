@@ -14,6 +14,8 @@ export class BatchFileScanner {
       await this.scanDirectory(folderPath, accounts, 0);
     } catch (error) {
       console.error('Error scanning folder:', error);
+      // Return empty array on error to match test expectations
+      return [];
     }
 
     return accounts;
@@ -41,6 +43,7 @@ export class BatchFileScanner {
       entries = await fs.readdir(dirPath, { withFileTypes: true });
     } catch (error) {
       console.warn(`Cannot read directory ${dirPath}:`, error);
+      // Do not throw, just return to upper logic
       return;
     }
 
