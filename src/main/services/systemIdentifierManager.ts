@@ -253,7 +253,7 @@ export class SystemIdentifierManager {
         { timeout: 10000 }
       );
       await execAsync(
-        `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v NV Hostname /t REG_SZ /d "${hostName}" /f`,
+        `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v "NV Hostname" /t REG_SZ /d "${hostName}" /f`,
         { timeout: 10000 }
       );
     } catch (error) {
