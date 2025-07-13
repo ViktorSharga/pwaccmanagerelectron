@@ -391,31 +391,31 @@ export function setupIpcHandlers() {
   ipcMain.handle('test-isolated-start', async () => {
     try {
       const systemIdManager = gameProcessManager.getSystemIdentifierManager();
-      
+
       // Check admin privileges
       const hasAdmin = await systemIdManager.checkAdminPrivileges();
       if (!hasAdmin) {
-        return { 
-          success: false, 
-          error: 'Administrator privileges required. Please run the application as administrator.' 
+        return {
+          success: false,
+          error: 'Administrator privileges required. Please run the application as administrator.',
         };
       }
 
       // Get current identifiers
       const originalIdentifiers = await systemIdManager.getCurrentIdentifiers();
-      
+
       // Generate and apply new identifiers
       const newIdentifiers = systemIdManager.generateRandomIdentifiers();
       await systemIdManager.applyIdentifiers(newIdentifiers);
-      
+
       // Verify changes
       const verifyIdentifiers = await systemIdManager.getCurrentIdentifiers();
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         original: originalIdentifiers,
         applied: newIdentifiers,
-        verified: verifyIdentifiers
+        verified: verifyIdentifiers,
       };
     } catch (error: any) {
       return { success: false, error: error.message };

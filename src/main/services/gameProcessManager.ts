@@ -1186,7 +1186,11 @@ export class GameProcessManager extends EventEmitter {
    */
   private async handleIsolatedStart(): Promise<void> {
     try {
-      logger.info('Isolated start mode enabled - applying system identifier changes', null, 'ISOLATED_START');
+      logger.info(
+        'Isolated start mode enabled - applying system identifier changes',
+        null,
+        'ISOLATED_START'
+      );
 
       // Check admin privileges first
       const hasAdmin = await this.systemIdentifierManager.checkAdminPrivileges();
@@ -1202,11 +1206,19 @@ export class GameProcessManager extends EventEmitter {
         const originalIdentifiers = await this.systemIdentifierManager.getCurrentIdentifiers();
         await this.settingsManager.storeOriginalSystemIdentifiers(originalIdentifiers);
         this.systemIdentifierManager.storeOriginalIdentifiers(originalIdentifiers);
-        logger.info('Original system identifiers stored for first time', originalIdentifiers, 'ISOLATED_START');
+        logger.info(
+          'Original system identifiers stored for first time',
+          originalIdentifiers,
+          'ISOLATED_START'
+        );
       } else {
         // Use stored original identifiers
         this.systemIdentifierManager.storeOriginalIdentifiers(storedOriginal);
-        logger.info('Using previously stored original identifiers', storedOriginal, 'ISOLATED_START');
+        logger.info(
+          'Using previously stored original identifiers',
+          storedOriginal,
+          'ISOLATED_START'
+        );
       }
 
       // Generate new random identifiers
@@ -1216,10 +1228,16 @@ export class GameProcessManager extends EventEmitter {
       // Apply the new identifiers
       await this.systemIdentifierManager.applyIdentifiers(newIdentifiers);
 
-      logger.info('Isolated start mode - system identifiers applied successfully', null, 'ISOLATED_START');
+      logger.info(
+        'Isolated start mode - system identifiers applied successfully',
+        null,
+        'ISOLATED_START'
+      );
     } catch (error) {
       logger.error('Failed to apply isolated start mode', error, 'ISOLATED_START');
-      throw new Error(`Isolated start mode failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Isolated start mode failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 

@@ -124,12 +124,15 @@ export class SettingsManager {
   /**
    * Get stored original system identifiers
    */
-  async getOriginalSystemIdentifiers(): Promise<{
-    windowsProductId: string;
-    computerName: string;
-    hostName: string;
-    timestamp: number;
-  } | undefined> {
+  async getOriginalSystemIdentifiers(): Promise<
+    | {
+        windowsProductId: string;
+        computerName: string;
+        hostName: string;
+        timestamp: number;
+      }
+    | undefined
+  > {
     const settings = await this.getSettings();
     return settings.originalSystemIdentifiers;
   }

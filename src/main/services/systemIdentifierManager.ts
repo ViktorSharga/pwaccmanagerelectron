@@ -24,7 +24,10 @@ export class SystemIdentifierManager {
 
     try {
       // Try to read a registry key that requires admin access
-      const { stdout } = await execAsync('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId', { timeout: 5000 });
+      const { stdout } = await execAsync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId',
+        { timeout: 5000 }
+      );
       return stdout.includes('ProductId');
     } catch (error) {
       return false;
@@ -43,18 +46,20 @@ export class SystemIdentifierManager {
       const [windowsProductId, computerName, hostName] = await Promise.all([
         this.getWindowsProductId(),
         this.getComputerName(),
-        this.getHostName()
+        this.getHostName(),
       ]);
 
       return {
         windowsProductId,
         computerName,
         hostName,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
     } catch (error) {
       logger.error('Failed to get current system identifiers', error, 'SYSTEM_ID');
-      throw new Error(`Failed to get system identifiers: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to get system identifiers: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -63,11 +68,15 @@ export class SystemIdentifierManager {
    */
   storeOriginalIdentifiers(identifiers: SystemIdentifiers): void {
     this.originalIdentifiers = { ...identifiers };
-    logger.info('Original system identifiers stored', {
-      windowsProductId: identifiers.windowsProductId,
-      computerName: identifiers.computerName,
-      hostName: identifiers.hostName
-    }, 'SYSTEM_ID');
+    logger.info(
+      'Original system identifiers stored',
+      {
+        windowsProductId: identifiers.windowsProductId,
+        computerName: identifiers.computerName,
+        hostName: identifiers.hostName,
+      },
+      'SYSTEM_ID'
+    );
   }
 
   /**
@@ -82,7 +91,7 @@ export class SystemIdentifierManager {
       windowsProductId,
       computerName,
       hostName,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
@@ -96,21 +105,27 @@ export class SystemIdentifierManager {
 
     const hasAdmin = await this.checkAdminPrivileges();
     if (!hasAdmin) {
-      throw new Error('Administrator privileges required to change system identifiers. Please run the application as administrator.');
+      throw new Error(
+        'Administrator privileges required to change system identifiers. Please run the application as administrator.'
+      );
     }
 
     try {
-      logger.info('Applying system identifiers', {
-        windowsProductId: identifiers.windowsProductId,
-        computerName: identifiers.computerName,
-        hostName: identifiers.hostName
-      }, 'SYSTEM_ID');
+      logger.info(
+        'Applying system identifiers',
+        {
+          windowsProductId: identifiers.windowsProductId,
+          computerName: identifiers.computerName,
+          hostName: identifiers.hostName,
+        },
+        'SYSTEM_ID'
+      );
 
       // Apply changes in parallel for better performance
       await Promise.all([
         this.setWindowsProductId(identifiers.windowsProductId),
         this.setComputerName(identifiers.computerName),
-        this.setHostName(identifiers.hostName)
+        this.setHostName(identifiers.hostName),
       ]);
 
       // Verify changes were applied
@@ -119,7 +134,9 @@ export class SystemIdentifierManager {
       logger.info('System identifiers applied successfully', null, 'SYSTEM_ID');
     } catch (error) {
       logger.error('Failed to apply system identifiers', error, 'SYSTEM_ID');
-      throw new Error(`Failed to apply system identifiers: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to apply system identifiers: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -146,27 +163,37 @@ export class SystemIdentifierManager {
 
   private async getWindowsProductId(): Promise<string> {
     try {
-      const { stdout } = await execAsync('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId', { timeout: 5000 });
+      const { stdout } = await execAsync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId',
+        { timeout: 5000 }
+      );
       const match = stdout.match(/ProductId\s+REG_SZ\s+(.+)/);
       if (match && match[1]) {
         return match[1].trim();
       }
       throw new Error('ProductId not found in registry');
     } catch (error) {
-      throw new Error(`Failed to get Windows Product ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to get Windows Product ID: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
   private async getComputerName(): Promise<string> {
     try {
-      const { stdout } = await execAsync('reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName" /v ComputerName', { timeout: 5000 });
+      const { stdout } = await execAsync(
+        'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName" /v ComputerName',
+        { timeout: 5000 }
+      );
       const match = stdout.match(/ComputerName\s+REG_SZ\s+(.+)/);
       if (match && match[1]) {
         return match[1].trim();
       }
       throw new Error('ComputerName not found in registry');
     } catch (error) {
-      throw new Error(`Failed to get Computer Name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to get Computer Name: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -175,15 +202,22 @@ export class SystemIdentifierManager {
       const { stdout } = await execAsync('hostname', { timeout: 5000 });
       return stdout.trim();
     } catch (error) {
-      throw new Error(`Failed to get Host Name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to get Host Name: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
   private async setWindowsProductId(productId: string): Promise<void> {
     try {
-      await execAsync(`reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId /t REG_SZ /d "${productId}" /f`, { timeout: 10000 });
+      await execAsync(
+        `reg add "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion" /v ProductId /t REG_SZ /d "${productId}" /f`,
+        { timeout: 10000 }
+      );
     } catch (error) {
-      throw new Error(`Failed to set Windows Product ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to set Windows Product ID: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -191,22 +225,41 @@ export class SystemIdentifierManager {
     try {
       // Set computer name in multiple locations for compatibility
       await Promise.all([
-        execAsync(`reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName" /v ComputerName /t REG_SZ /d "${computerName}" /f`, { timeout: 10000 }),
-        execAsync(`reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName" /v ComputerName /t REG_SZ /d "${computerName}" /f`, { timeout: 10000 }),
-        execAsync(`reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v Hostname /t REG_SZ /d "${computerName}" /f`, { timeout: 10000 })
+        execAsync(
+          `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName" /v ComputerName /t REG_SZ /d "${computerName}" /f`,
+          { timeout: 10000 }
+        ),
+        execAsync(
+          `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ActiveComputerName" /v ComputerName /t REG_SZ /d "${computerName}" /f`,
+          { timeout: 10000 }
+        ),
+        execAsync(
+          `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v Hostname /t REG_SZ /d "${computerName}" /f`,
+          { timeout: 10000 }
+        ),
       ]);
     } catch (error) {
-      throw new Error(`Failed to set Computer Name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to set Computer Name: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
   private async setHostName(hostName: string): Promise<void> {
     try {
       // Set hostname in network configuration
-      await execAsync(`reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v Hostname /t REG_SZ /d "${hostName}" /f`, { timeout: 10000 });
-      await execAsync(`reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v NV Hostname /t REG_SZ /d "${hostName}" /f`, { timeout: 10000 });
+      await execAsync(
+        `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v Hostname /t REG_SZ /d "${hostName}" /f`,
+        { timeout: 10000 }
+      );
+      await execAsync(
+        `reg add "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters" /v NV Hostname /t REG_SZ /d "${hostName}" /f`,
+        { timeout: 10000 }
+      );
     } catch (error) {
-      throw new Error(`Failed to set Host Name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to set Host Name: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   }
 
@@ -229,34 +282,38 @@ export class SystemIdentifierManager {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     const prefixes = ['PC', 'WIN', 'COMP', 'SYS', 'HOST'];
     const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-    
+
     let suffix = '';
     const suffixLength = Math.floor(Math.random() * 8) + 4; // 4-11 characters for suffix
     for (let i = 0; i < suffixLength; i++) {
       suffix += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    
+
     return `${prefix}-${suffix}`.substring(0, 15); // Windows limit
   }
 
   private async verifyChanges(expectedIdentifiers: SystemIdentifiers): Promise<void> {
     try {
       const currentIdentifiers = await this.getCurrentIdentifiers();
-      
+
       const errors: string[] = [];
-      
+
       if (currentIdentifiers.windowsProductId !== expectedIdentifiers.windowsProductId) {
-        errors.push(`Windows Product ID mismatch: expected ${expectedIdentifiers.windowsProductId}, got ${currentIdentifiers.windowsProductId}`);
+        errors.push(
+          `Windows Product ID mismatch: expected ${expectedIdentifiers.windowsProductId}, got ${currentIdentifiers.windowsProductId}`
+        );
       }
-      
+
       if (currentIdentifiers.computerName !== expectedIdentifiers.computerName) {
-        errors.push(`Computer Name mismatch: expected ${expectedIdentifiers.computerName}, got ${currentIdentifiers.computerName}`);
+        errors.push(
+          `Computer Name mismatch: expected ${expectedIdentifiers.computerName}, got ${currentIdentifiers.computerName}`
+        );
       }
-      
+
       if (errors.length > 0) {
         throw new Error(`Verification failed: ${errors.join('; ')}`);
       }
-      
+
       logger.info('System identifier changes verified successfully', null, 'SYSTEM_ID');
     } catch (error) {
       logger.warn('Failed to verify system identifier changes', error, 'SYSTEM_ID');
