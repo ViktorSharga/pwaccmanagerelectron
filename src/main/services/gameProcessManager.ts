@@ -380,20 +380,33 @@ export class GameProcessManager extends EventEmitter {
     
     try {
       // Check if the specific PID exists and verify it's ElementClient.exe
-      const { stdout } = await execAsync(`tasklist /fi "pid eq ${pid}" /fo csv /nh`, { timeout: 1000 });
+      const { stdout } = await execAsync(`tasklist /fi "pid eq ${pid}" /fo csv /nh`, { timeout: 3000 });
       
-      if (!stdout.includes(`"${pid}"`)) {
+      // More robust parsing - tasklist CSV format: "Image Name","PID","Session Name","Session#","Mem Usage"
+      if (!stdout || !stdout.trim()) {
+        console.log(`checkIfProcessExists: No output for PID ${pid}`);
         return false;
       }
       
-      // Verify it's specifically ElementClient.exe
-      const processLine = stdout.split('\n').find(line => line.includes(`"${pid}"`));
-      if (processLine) {
-        return processLine.toLowerCase().includes('elementclient.exe');
+      // Split by lines and look for our PID
+      const lines = stdout.split('\n').filter(line => line.trim());
+      for (const line of lines) {
+        // Parse CSV line properly - look for our PID in the second column
+        const csvMatch = line.match(/"([^"]+)","(\d+)","([^"]*)","([^"]*)","([^"]*)"/);
+        if (csvMatch) {
+          const [, imageName, pidStr] = csvMatch;
+          if (parseInt(pidStr) === pid) {
+            const isElementClient = imageName.toLowerCase() === 'elementclient.exe';
+            console.log(`checkIfProcessExists: PID ${pid} found as "${imageName}", isElementClient: ${isElementClient}`);
+            return isElementClient;
+          }
+        }
       }
       
+      console.log(`checkIfProcessExists: PID ${pid} not found in tasklist output`);
       return false;
     } catch (error) {
+      console.warn(`checkIfProcessExists: Error checking PID ${pid}:`, error);
       return false;
     }
   }
@@ -427,14 +440,13 @@ export class GameProcessManager extends EventEmitter {
                 const currentProcesses = await this.getElementClientProcesses();
                 const assignedPids = new Set(Array.from(this.processes.values()).map(p => p.pid).filter(p => p > 0));
                 
-                // Look for very recent processes not yet assigned
-                const recentProcesses = currentProcesses.filter(proc => {
-                  const processAge = Date.now() - proc.startTime.getTime();
-                  return processAge < 30000 && !assignedPids.has(proc.pid); // Less than 30 seconds old
+                // Look for unassigned processes (remove the 30-second age restriction)
+                const unassignedProcesses = currentProcesses.filter(proc => {
+                  return !assignedPids.has(proc.pid);
                 });
                 
-                if (recentProcesses.length > 0) {
-                  const targetProcess = recentProcesses[0];
+                if (unassignedProcesses.length > 0) {
+                  const targetProcess = unassignedProcesses[0];
                   processInfo.pid = targetProcess.pid;
                   console.log(`🔄 Late association: ${processInfo.login} now has PID ${targetProcess.pid}`);
                   
@@ -446,7 +458,7 @@ export class GameProcessManager extends EventEmitter {
                   stillRunning = true;
                 }
               } catch (error) {
-                console.warn(`Could not check ElementClient processes:`, error);
+                console.warn(`Could not check ElementClient processes for late association:`, error);
                 stillRunning = true; // Assume still running if we can't check
               }
             } else {
@@ -459,7 +471,13 @@ export class GameProcessManager extends EventEmitter {
           }
         } else {
           // For processes with PID, check specifically if still exists
-          stillRunning = await this.checkIfProcessExists(processInfo.pid);
+          try {
+            stillRunning = await this.checkIfProcessExists(processInfo.pid);
+            console.log(`Process check for ${processInfo.login} (PID ${processInfo.pid}): ${stillRunning ? 'RUNNING' : 'NOT FOUND'}`);
+          } catch (error) {
+            console.warn(`Error checking process existence for ${processInfo.login} (PID ${processInfo.pid}):`, error);
+            stillRunning = true; // Assume still running if check fails
+          }
         }
         
         if (!stillRunning) {
