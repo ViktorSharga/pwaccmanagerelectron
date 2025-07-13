@@ -41,8 +41,16 @@ export class GameProcessManager extends EventEmitter {
   private adjustPerformanceSettings(): void {
     if (!this.settingsManager) return;
 
+    // This is called from constructor, so we can't use async/await here
+    // Performance settings will be set to defaults initially
+    this.LIGHTWEIGHT_CHECK_INTERVAL = 180000; // Default to 3 minutes
+  }
+
+  private async adjustPerformanceSettingsAsync(): Promise<void> {
+    if (!this.settingsManager) return;
+
     try {
-      const settings = this.settingsManager.getSettings();
+      const settings = await this.settingsManager.getSettings();
       const mode = settings.processMonitoringMode || '3min';
 
       switch (mode) {
@@ -72,11 +80,11 @@ export class GameProcessManager extends EventEmitter {
     }
   }
 
-  private shouldAutoRestart(): boolean {
+  private async shouldAutoRestart(): Promise<boolean> {
     if (!this.settingsManager) return false;
 
     try {
-      const settings = this.settingsManager.getSettings();
+      const settings = await this.settingsManager.getSettings();
 
       // Auto-restart only works when monitoring is enabled (not disabled)
       const monitoringEnabled = settings.processMonitoringMode !== 'disabled';
@@ -541,7 +549,7 @@ export class GameProcessManager extends EventEmitter {
           const wasUserInitiated = this.userInitiatedClosures.has(accountId);
           const launchData = this.accountLaunchData.get(accountId);
 
-          if (!wasUserInitiated && launchData && this.shouldAutoRestart()) {
+          if (!wasUserInitiated && launchData && await this.shouldAutoRestart()) {
             console.log(`💥 Crash detected for ${processInfo.login} - attempting auto-restart...`);
 
             // Remove from current tracking
@@ -594,9 +602,21 @@ export class GameProcessManager extends EventEmitter {
       (async () => {
         try {
           // Check if isolated start mode is enabled
-          const settings = this.settingsManager?.getSettings();
+          const settings = await this.settingsManager?.getSettings();
+          logger.info(
+            'Checking isolated start mode',
+            { 
+              settingsAvailable: !!settings,
+              isolatedStartMode: settings?.isolatedStartMode,
+              allSettings: settings
+            },
+            'LAUNCH'
+          );
           if (settings?.isolatedStartMode) {
+            logger.info('Isolated start mode is enabled, applying system identifier changes', null, 'LAUNCH');
             await this.handleIsolatedStart();
+          } else {
+            logger.info('Isolated start mode is disabled, skipping system identifier changes', null, 'LAUNCH');
           }
           // Get ALL existing ElementClient.exe processes before launch
           const existingProcesses = await this.getElementClientProcesses();
@@ -1165,9 +1185,9 @@ export class GameProcessManager extends EventEmitter {
     return this.processes.has(accountId);
   }
 
-  updatePerformanceSettings(): void {
+  async updatePerformanceSettings(): Promise<void> {
     // Update the intervals based on new settings
-    this.adjustPerformanceSettings();
+    await this.adjustPerformanceSettingsAsync();
 
     // Restart crash detection with new intervals if we have running processes
     if (this.processes.size > 0) {
@@ -1175,7 +1195,8 @@ export class GameProcessManager extends EventEmitter {
       this.startOptionalCrashDetection();
     }
 
-    const mode = this.settingsManager?.getSettings()?.processMonitoringMode || '3min';
+    const settings = await this.settingsManager?.getSettings();
+    const mode = settings?.processMonitoringMode || '3min';
     console.log(
       `Process monitoring updated to: ${mode} (${this.LIGHTWEIGHT_CHECK_INTERVAL}ms interval)`
     );
