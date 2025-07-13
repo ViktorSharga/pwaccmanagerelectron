@@ -41,14 +41,17 @@ const api = {
     }
     throw new Error(`Invalid channel: ${channel}`);
   },
-  
+
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, listener);
     }
   },
-  
-  removeListener: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
+
+  removeListener: (
+    channel: string,
+    listener: (event: IpcRendererEvent, ...args: any[]) => void
+  ) => {
     if (validChannels.includes(channel)) {
       ipcRenderer.removeListener(channel, listener);
     }

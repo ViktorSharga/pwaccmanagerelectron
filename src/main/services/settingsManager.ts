@@ -60,23 +60,22 @@ export class SettingsManager {
 
     if (settings.gamePath) {
       // Check for elementclient.exe in multiple locations with case-insensitive search
-      const possiblePaths = [
-        settings.gamePath,
-        path.join(settings.gamePath, 'element')
-      ];
-      
+      const possiblePaths = [settings.gamePath, path.join(settings.gamePath, 'element')];
+
       let found = false;
       for (const basePath of possiblePaths) {
         try {
           const files = await fs.readdir(basePath);
-          const executableName = files.find(file => {
+          const executableName = files.find((file) => {
             const lowerFile = file.toLowerCase();
-            return lowerFile === 'elementclient.exe' ||
-                   lowerFile === 'element client.exe' ||
-                   lowerFile === 'element_client.exe' ||
-                   (lowerFile.includes('elementclient') && lowerFile.endsWith('.exe'));
+            return (
+              lowerFile === 'elementclient.exe' ||
+              lowerFile === 'element client.exe' ||
+              lowerFile === 'element_client.exe' ||
+              (lowerFile.includes('elementclient') && lowerFile.endsWith('.exe'))
+            );
           });
-          
+
           if (executableName) {
             const fullPath = path.join(basePath, executableName);
             await fs.access(fullPath);
@@ -87,7 +86,7 @@ export class SettingsManager {
           // Directory doesn't exist or not accessible, continue to next path
         }
       }
-      
+
       if (!found) {
         throw new Error('Invalid game path: ElementClient.exe not found');
       }

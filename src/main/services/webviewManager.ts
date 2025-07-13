@@ -9,7 +9,7 @@ export class WebViewManager {
   async openWebViewForAccount(account: Account): Promise<void> {
     try {
       console.log(`Opening WebView for account: ${account.login}`);
-      
+
       const existingView = this.webViews.get(account.id);
       if (existingView) {
         // Check if the existing WebView is still valid
@@ -29,7 +29,7 @@ export class WebViewManager {
 
       const partition = `webview_${account.id}`;
       const ses = session.fromPartition(partition);
-      
+
       await ses.clearStorageData();
 
       const webView = new BrowserView({
@@ -62,9 +62,14 @@ export class WebViewManager {
       this.webViews.set(account.id, webView);
 
       // Add error handling for webContents
-      webView.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-        console.error(`WebView failed to load: ${errorCode} - ${errorDescription} for URL: ${validatedURL}`);
-      });
+      webView.webContents.on(
+        'did-fail-load',
+        (event, errorCode, errorDescription, validatedURL) => {
+          console.error(
+            `WebView failed to load: ${errorCode} - ${errorDescription} for URL: ${validatedURL}`
+          );
+        }
+      );
 
       webView.webContents.on('did-finish-load', () => {
         console.log('WebView finished loading, attempting to auto-fill credentials...');
@@ -150,7 +155,7 @@ export class WebViewManager {
           \`;
           accountInfo.innerHTML = \`
             <span>🌐</span>
-            <span>Account: <strong>${account.login.replace(/'/g, "&apos;")}</strong></span>
+            <span>Account: <strong>${account.login.replace(/'/g, '&apos;')}</strong></span>
           \`;
           
           // Controls
@@ -215,8 +220,8 @@ export class WebViewManager {
   private async autoFillCredentials(webView: BrowserView, account: Account): Promise<void> {
     try {
       // Wait a bit for the page to fully load
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
       const fillScript = `
         (function() {
           try {
@@ -319,7 +324,7 @@ export class WebViewManager {
       try {
         // Ensure the WebView is properly attached to the main window
         mainWindow.setBrowserView(webView);
-        
+
         // Re-position the WebView in case window was resized
         const bounds = mainWindow.getBounds();
         webView.setBounds({
@@ -328,7 +333,7 @@ export class WebViewManager {
           width: bounds.width,
           height: bounds.height - 80,
         });
-        
+
         // Focus the WebView
         if (webView.webContents && !webView.webContents.isDestroyed()) {
           webView.webContents.focus();
@@ -352,18 +357,18 @@ export class WebViewManager {
           // Close the webContents to free memory
           webView.webContents.close();
         }
-        
+
         // Remove the BrowserView from the main window
         mainWindow.removeBrowserView(webView);
-        
+
         // Remove from our tracking
         this.webViews.delete(accountId);
-        
+
         // If no more webviews, clear the browser view
         if (this.webViews.size === 0) {
           mainWindow.setBrowserView(null);
         }
-        
+
         console.log(`WebView for account ${accountId} closed successfully`);
       } catch (error) {
         console.error('Error closing WebView:', error);

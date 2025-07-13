@@ -34,14 +34,14 @@ export function setupLoggingHandlers() {
   // Copy log entry to clipboard
   ipcMain.handle('copy-log-entry', async (_, logId: string) => {
     const logs = logger.getLogs();
-    const entry = logs.find(log => log.id === logId);
-    
+    const entry = logs.find((log) => log.id === logId);
+
     if (entry) {
       const formatted = logger.formatForClipboard(entry);
       clipboard.writeText(formatted);
       return { success: true };
     }
-    
+
     return { success: false, error: 'Log entry not found' };
   });
 

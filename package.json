@@ -69,7 +69,6 @@
           ]
         }
       ],
-      "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker",
       "publisherName": "Perfect World Account Manager"
     },
@@ -82,13 +81,11 @@
       "shortcutName": "PW Account Manager"
     },
     "mac": {
-      "category": "public.app-category.utilities",
-      "icon": "assets/icon.icns"
+      "category": "public.app-category.utilities"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Utility",
-      "icon": "assets/icon.png"
+      "category": "Utility"
     }
   }
 }

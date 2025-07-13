@@ -8,7 +8,7 @@ export enum LogLevel {
   INFO = 1,
   WARN = 2,
   ERROR = 3,
-  OPERATION = 4 // Special level for status bar operations
+  OPERATION = 4, // Special level for status bar operations
 }
 
 export interface LogEntry {
@@ -54,7 +54,7 @@ export class LoggingService extends EventEmitter {
   // Non-blocking log write with queue
   private async writeToFile(entry: LogEntry): Promise<void> {
     this.writeQueue.push(entry);
-    
+
     if (!this.isWriting) {
       this.isWriting = true;
       // Process queue asynchronously
@@ -65,15 +65,15 @@ export class LoggingService extends EventEmitter {
   private async processWriteQueue(): Promise<void> {
     while (this.writeQueue.length > 0) {
       const batch = this.writeQueue.splice(0, 50); // Process in batches
-      const lines = batch.map(entry => this.formatLogEntry(entry)).join('\n') + '\n';
-      
+      const lines = batch.map((entry) => this.formatLogEntry(entry)).join('\n') + '\n';
+
       try {
         await fs.appendFile(this.logFile, lines, 'utf8');
       } catch (error) {
         console.error('Failed to write logs to file:', error);
       }
     }
-    
+
     this.isWriting = false;
   }
 
@@ -81,19 +81,19 @@ export class LoggingService extends EventEmitter {
     const levelStr = LogLevel[entry.level].padEnd(9);
     const timestamp = entry.timestamp.toISOString();
     let line = `[${timestamp}] [${levelStr}] ${entry.message}`;
-    
+
     if (entry.context) {
       line += ` [${entry.context}]`;
     }
-    
+
     if (entry.details) {
       line += ` ${JSON.stringify(entry.details)}`;
     }
-    
+
     if (entry.stackTrace) {
       line += `\n${entry.stackTrace}`;
     }
-    
+
     return line;
   }
 
@@ -104,15 +104,15 @@ export class LoggingService extends EventEmitter {
       if (stats.size > 10 * 1024 * 1024) {
         const backupPath = `${this.logFile}.${Date.now()}.bak`;
         await fs.rename(this.logFile, backupPath);
-        
+
         // Keep only last 3 backup files
         const logDir = path.dirname(this.logFile);
         const files = await fs.readdir(logDir);
         const backups = files
-          .filter(f => f.startsWith(path.basename(this.logFile)) && f.endsWith('.bak'))
+          .filter((f) => f.startsWith(path.basename(this.logFile)) && f.endsWith('.bak'))
           .sort()
           .reverse();
-        
+
         for (let i = 3; i < backups.length; i++) {
           await fs.unlink(path.join(logDir, backups[i])).catch(() => {});
         }
@@ -137,7 +137,7 @@ export class LoggingService extends EventEmitter {
       level,
       message,
       details,
-      context
+      context,
     };
 
     // Capture stack trace for errors
@@ -146,7 +146,7 @@ export class LoggingService extends EventEmitter {
       entry.details = {
         ...details,
         name: details.name,
-        message: details.message
+        message: details.message,
       };
     }
 
@@ -161,7 +161,7 @@ export class LoggingService extends EventEmitter {
 
     // Emit events for UI updates
     this.emit('log-added', entry);
-    
+
     if (level === LogLevel.ERROR) {
       this.emit('error-logged', entry);
     }
@@ -187,11 +187,11 @@ export class LoggingService extends EventEmitter {
   // Simple status bar operation management
   startOperation(operation: string): void {
     console.log(`🚀 LoggingService.startOperation("${operation}")`);
-    
+
     // Set the new operation and log it
     this.currentOperation = operation;
     this.log(LogLevel.OPERATION, operation, null, 'OPERATION_START');
-    
+
     // Emit to renderer - renderer will handle timer logic
     console.log(`📡 Emitting operation-changed: "${operation}"`);
     this.emit('operation-changed', operation);
@@ -200,7 +200,7 @@ export class LoggingService extends EventEmitter {
   endOperation(success: boolean = true): void {
     if (this.currentOperation) {
       this.log(
-        LogLevel.OPERATION, 
+        LogLevel.OPERATION,
         `${this.currentOperation} ${success ? 'completed' : 'failed'}`,
         null,
         'OPERATION_END'
@@ -222,58 +222,57 @@ export class LoggingService extends EventEmitter {
   // Get logs with optional filtering
   getLogs(filter?: LogFilter): LogEntry[] {
     let filtered = [...this.logs];
-    
+
     if (filter) {
       if (filter.level !== undefined) {
-        filtered = filtered.filter(log => log.level >= filter.level!);
+        filtered = filtered.filter((log) => log.level >= filter.level!);
       }
-      
+
       if (filter.startDate) {
-        filtered = filtered.filter(log => log.timestamp >= filter.startDate!);
+        filtered = filtered.filter((log) => log.timestamp >= filter.startDate!);
       }
-      
+
       if (filter.endDate) {
-        filtered = filtered.filter(log => log.timestamp <= filter.endDate!);
+        filtered = filtered.filter((log) => log.timestamp <= filter.endDate!);
       }
-      
+
       if (filter.searchText) {
         const search = filter.searchText.toLowerCase();
-        filtered = filtered.filter(log => 
-          log.message.toLowerCase().includes(search) ||
-          (log.context && log.context.toLowerCase().includes(search)) ||
-          (log.details && JSON.stringify(log.details).toLowerCase().includes(search))
+        filtered = filtered.filter(
+          (log) =>
+            log.message.toLowerCase().includes(search) ||
+            (log.context && log.context.toLowerCase().includes(search)) ||
+            (log.details && JSON.stringify(log.details).toLowerCase().includes(search))
         );
       }
     }
-    
+
     return filtered;
   }
 
   // Get recent errors for quick access
   getRecentErrors(count: number = 10): LogEntry[] {
-    return this.logs
-      .filter(log => log.level === LogLevel.ERROR)
-      .slice(-count);
+    return this.logs.filter((log) => log.level === LogLevel.ERROR).slice(-count);
   }
 
   // Clear logs (both memory and file)
   async clearLogs(): Promise<void> {
     this.logs = [];
     this.writeQueue = [];
-    
+
     try {
       await fs.unlink(this.logFile);
     } catch (error) {
       // File might not exist
     }
-    
+
     this.emit('logs-cleared');
   }
 
   // Export logs to file
   async exportLogs(outputPath: string, filter?: LogFilter): Promise<void> {
     const logs = this.getLogs(filter);
-    const content = logs.map(log => this.formatLogEntry(log)).join('\n');
+    const content = logs.map((log) => this.formatLogEntry(log)).join('\n');
     await fs.writeFile(outputPath, content, 'utf8');
   }
 
@@ -282,19 +281,19 @@ export class LoggingService extends EventEmitter {
     let formatted = `Timestamp: ${entry.timestamp.toISOString()}\n`;
     formatted += `Level: ${LogLevel[entry.level]}\n`;
     formatted += `Message: ${entry.message}\n`;
-    
+
     if (entry.context) {
       formatted += `Context: ${entry.context}\n`;
     }
-    
+
     if (entry.details) {
       formatted += `Details: ${JSON.stringify(entry.details, null, 2)}\n`;
     }
-    
+
     if (entry.stackTrace) {
       formatted += `\nStack Trace:\n${entry.stackTrace}\n`;
     }
-    
+
     return formatted;
   }
 
