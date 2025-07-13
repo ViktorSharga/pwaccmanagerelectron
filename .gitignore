@@ -14,3 +14,5 @@ yarn-error.log*
 accounts.json
 settings.json
 *.bat
+# But include test mock data
+!tests/mock-data/**/*.bat
