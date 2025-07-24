@@ -1,4 +1,4 @@
-import { BrowserWindow, BrowserView, session } from 'electron';
+import { BrowserView, session } from 'electron';
 import { Account } from '../../shared/types';
 import { mainWindow } from '../main';
 

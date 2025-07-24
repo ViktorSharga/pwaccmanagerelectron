@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Account, ProcessInfo } from '../../shared/types';
 import { logger } from './loggingService';
-import { SystemIdentifierManager } from './systemIdentifierManager';
+import { ProcessSpoofer } from './processSpoofer';
 
 const execAsync = promisify(exec);
 
@@ -18,14 +18,14 @@ export class GameProcessManager extends EventEmitter {
   > = new Map();
   private LIGHTWEIGHT_CHECK_INTERVAL = 5000; // Quick checks interval (configurable)
   private settingsManager: any; // Will be injected
-  private systemIdentifierManager: SystemIdentifierManager;
+  private processSpoofer: ProcessSpoofer;
   private userInitiatedClosures: Set<string> = new Set(); // Track accounts closed by user action
   private accountLaunchData: Map<string, { account: Account; gamePath: string }> = new Map(); // Store launch data for restarts
 
   constructor(settingsManager?: any) {
     super();
     this.settingsManager = settingsManager;
-    this.systemIdentifierManager = new SystemIdentifierManager();
+    this.processSpoofer = new ProcessSpoofer();
     this.adjustPerformanceSettings();
     // NO MORE CONSTANT MONITORING! Only check when needed
     logger.info(
@@ -549,7 +549,7 @@ export class GameProcessManager extends EventEmitter {
           const wasUserInitiated = this.userInitiatedClosures.has(accountId);
           const launchData = this.accountLaunchData.get(accountId);
 
-          if (!wasUserInitiated && launchData && await this.shouldAutoRestart()) {
+          if (!wasUserInitiated && launchData && (await this.shouldAutoRestart())) {
             console.log(`💥 Crash detected for ${processInfo.login} - attempting auto-restart...`);
 
             // Remove from current tracking
@@ -605,18 +605,26 @@ export class GameProcessManager extends EventEmitter {
           const settings = await this.settingsManager?.getSettings();
           logger.info(
             'Checking isolated start mode',
-            { 
+            {
               settingsAvailable: !!settings,
               isolatedStartMode: settings?.isolatedStartMode,
-              allSettings: settings
+              allSettings: settings,
             },
             'LAUNCH'
           );
           if (settings?.isolatedStartMode) {
-            logger.info('Isolated start mode is enabled, applying system identifier changes', null, 'LAUNCH');
+            logger.info(
+              'Isolated start mode is enabled, preparing process-level spoofing',
+              null,
+              'LAUNCH'
+            );
             await this.handleIsolatedStart();
           } else {
-            logger.info('Isolated start mode is disabled, skipping system identifier changes', null, 'LAUNCH');
+            logger.info(
+              'Isolated start mode is disabled, skipping system identifier changes',
+              null,
+              'LAUNCH'
+            );
           }
           // Get ALL existing ElementClient.exe processes before launch
           const existingProcesses = await this.getElementClientProcesses();
@@ -738,6 +746,31 @@ export class GameProcessManager extends EventEmitter {
           });
 
           child.unref();
+
+          // Apply process spoofing if isolated mode is enabled
+          if ((this as any)._pendingSpoofedIdentifiers && child.pid) {
+            try {
+              await this.processSpoofer.initializeForProcess(child.pid);
+              const success = await this.processSpoofer.applySpoofing(
+                (this as any)._pendingSpoofedIdentifiers
+              );
+
+              if (success) {
+                logger.info(
+                  `Process spoofing applied successfully to PID ${child.pid}`,
+                  null,
+                  'ISOLATED_START'
+                );
+              } else {
+                logger.warn(`Process spoofing failed for PID ${child.pid}`, null, 'ISOLATED_START');
+              }
+
+              // Clear pending identifiers
+              delete (this as any)._pendingSpoofedIdentifiers;
+            } catch (error) {
+              logger.error('Failed to apply process spoofing', error, 'ISOLATED_START');
+            }
+          }
 
           // Store launch data for potential auto-restart
           this.accountLaunchData.set(account.id, { account, gamePath });
@@ -1203,59 +1236,27 @@ export class GameProcessManager extends EventEmitter {
   }
 
   /**
-   * Handle isolated start mode - change system identifiers before launch
+   * Handle isolated start mode - prepare process-level spoofing
    */
   private async handleIsolatedStart(): Promise<void> {
     try {
       logger.info(
-        'Isolated start mode enabled - applying system identifier changes',
+        'Isolated start mode enabled - preparing process-level spoofing',
         null,
         'ISOLATED_START'
       );
 
-      // Check admin privileges first
-      const hasAdmin = await this.systemIdentifierManager.checkAdminPrivileges();
-      if (!hasAdmin) {
-        throw new Error(
-          'Administrator privileges required for isolated start mode. Please run the application as administrator.'
-        );
-      }
+      // Generate random identifiers for spoofing
+      const spoofedIdentifiers = await this.processSpoofer.generateRandomIdentifiers();
+      logger.info('Generated spoofed identifiers', spoofedIdentifiers, 'ISOLATED_START');
 
-      // Store original identifiers if not already stored
-      const storedOriginal = await this.settingsManager.getOriginalSystemIdentifiers();
-      if (!storedOriginal) {
-        const originalIdentifiers = await this.systemIdentifierManager.getCurrentIdentifiers();
-        await this.settingsManager.storeOriginalSystemIdentifiers(originalIdentifiers);
-        this.systemIdentifierManager.storeOriginalIdentifiers(originalIdentifiers);
-        logger.info(
-          'Original system identifiers stored for first time',
-          originalIdentifiers,
-          'ISOLATED_START'
-        );
-      } else {
-        // Use stored original identifiers
-        this.systemIdentifierManager.storeOriginalIdentifiers(storedOriginal);
-        logger.info(
-          'Using previously stored original identifiers',
-          storedOriginal,
-          'ISOLATED_START'
-        );
-      }
+      // Store identifiers for when the game process starts
+      // We'll apply spoofing after the process is launched
+      (this as any)._pendingSpoofedIdentifiers = spoofedIdentifiers;
 
-      // Generate new random identifiers
-      const newIdentifiers = this.systemIdentifierManager.generateRandomIdentifiers();
-      logger.info('Generated new system identifiers', newIdentifiers, 'ISOLATED_START');
-
-      // Apply the new identifiers
-      await this.systemIdentifierManager.applyIdentifiers(newIdentifiers);
-
-      logger.info(
-        'Isolated start mode - system identifiers applied successfully',
-        null,
-        'ISOLATED_START'
-      );
+      logger.info('Isolated start mode - spoofing prepared successfully', null, 'ISOLATED_START');
     } catch (error) {
-      logger.error('Failed to apply isolated start mode', error, 'ISOLATED_START');
+      logger.error('Failed to prepare isolated start mode', error, 'ISOLATED_START');
       throw new Error(
         `Isolated start mode failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -1263,42 +1264,26 @@ export class GameProcessManager extends EventEmitter {
   }
 
   /**
-   * Restore original system identifiers
+   * Restore original system identifiers (cleanup process spoofing)
    */
   async restoreOriginalSystemIdentifiers(): Promise<void> {
     try {
-      logger.info('Restoring original system identifiers', null, 'ISOLATED_START');
+      logger.info('Cleaning up process-level spoofing', null, 'ISOLATED_START');
 
-      // Check admin privileges first
-      const hasAdmin = await this.systemIdentifierManager.checkAdminPrivileges();
-      if (!hasAdmin) {
-        throw new Error(
-          'Administrator privileges required to restore system identifiers. Please run the application as administrator.'
-        );
-      }
+      await this.processSpoofer.cleanup();
 
-      // Get stored original identifiers
-      const storedOriginal = await this.settingsManager.getOriginalSystemIdentifiers();
-      if (!storedOriginal) {
-        throw new Error('No original system identifiers found. Cannot restore.');
-      }
-
-      // Apply original identifiers
-      this.systemIdentifierManager.storeOriginalIdentifiers(storedOriginal);
-      await this.systemIdentifierManager.restoreOriginalIdentifiers();
-
-      logger.info('Original system identifiers restored successfully', null, 'ISOLATED_START');
+      logger.info('Process spoofing cleaned up successfully', null, 'ISOLATED_START');
     } catch (error) {
-      logger.error('Failed to restore original system identifiers', error, 'ISOLATED_START');
+      logger.error('Failed to cleanup process spoofing', error, 'ISOLATED_START');
       throw error;
     }
   }
 
   /**
-   * Get system identifier manager for external access
+   * Get process spoofer for external access
    */
-  getSystemIdentifierManager(): SystemIdentifierManager {
-    return this.systemIdentifierManager;
+  getProcessSpoofer(): ProcessSpoofer {
+    return this.processSpoofer;
   }
 
   destroy(): void {

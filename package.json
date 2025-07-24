@@ -5,11 +5,12 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "npm run build && electron .",
-    "build": "tsc",
+    "build": "npm run build:native && tsc",
+    "build:native": "cd src/native/windows-spoofer && node-gyp rebuild",
     "watch": "tsc -w",
     "start": "electron .",
     "dist": "electron-builder",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "electron-builder install-app-deps && npm run build:native",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "jest",
     "test:unit": "jest --testPathPattern=unit",
@@ -42,7 +43,9 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "electron-store": "^8.1.0"
+    "electron-store": "^8.1.0",
+    "nan": "^2.18.0",
+    "node-gyp": "^10.0.1"
   },
   "build": {
     "appId": "com.perfectworld.accountmanager",

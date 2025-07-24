@@ -541,17 +541,21 @@ class PerfectWorldAccountManager {
                   Enable Isolated Start Mode
                 </label>
                 <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">
-                  <strong>⚠️ Requires Administrator Privileges</strong><br>
-                  Changes system identifiers (Windows ID, Computer Name, Host Name) before each client launch.<br>
-                  Helps prevent multi-client detection by generating unique system fingerprints.
+                  <strong>🔧 Process-Level Spoofing (New)</strong><br>
+                  Uses advanced API hooking to spoof hardware identifiers at the process level.<br>
+                  Includes MAC addresses, disk serials, GPU IDs, and more - without system changes.
                 </small>
                 <div id="isolatedStartDetails" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; display: none;">
-                  <strong>System Identifiers:</strong>
-                  <div id="systemIdentifiers" style="font-family: monospace; font-size: 11px; margin-top: 5px;">
+                  <div id="spoofingStatus" style="margin-bottom: 10px;">
+                    <strong>Spoofing Status:</strong>
+                    <div id="spoofingStatusText" style="font-weight: bold; color: #666;">Checking...</div>
+                  </div>
+                  <strong>Generated Identifiers:</strong>
+                  <div id="systemIdentifiers" style="font-family: monospace; font-size: 11px; margin-top: 5px; background: white; padding: 8px; border-radius: 3px;">
                     Loading...
                   </div>
                   <div style="margin-top: 10px;">
-                    <button type="button" id="btnTestIsolatedStart" class="btn" style="background: #007acc; color: white; margin-right: 10px;">Test Identifier Change</button>
+                    <button type="button" id="btnTestIsolatedStart" class="btn" style="background: #007acc; color: white; margin-right: 10px;">Test Process Spoofing</button>
                     <button type="button" id="btnRestoreIdentifiers" class="btn" style="background: #dc3545; color: white;">Restore Original Values</button>
                   </div>
                 </div>
@@ -663,6 +667,7 @@ class PerfectWorldAccountManager {
           }
           if (isolatedStartCheckbox.checked) {
             this.loadCurrentSystemIdentifiers(systemIdentifiersDiv);
+            this.updateSpoofingStatus(dialog);
           }
         };
 
@@ -670,6 +675,7 @@ class PerfectWorldAccountManager {
         if (isolatedStartCheckbox.checked && isolatedStartDetails) {
           isolatedStartDetails.style.display = 'block';
           this.loadCurrentSystemIdentifiers(systemIdentifiersDiv);
+          this.updateSpoofingStatus(dialog);
         }
       }
 
@@ -1680,33 +1686,18 @@ class PerfectWorldAccountManager {
     try {
       targetDiv.innerHTML = 'Loading...';
       
-      // Check admin privileges first
-      const adminResult = await window.electronAPI.invoke('check-admin-privileges');
-      if (!adminResult.success) {
-        targetDiv.innerHTML = `<span style="color: red;">Error: ${adminResult.error}</span>`;
-        return;
-      }
-
-      if (!adminResult.hasAdmin) {
-        targetDiv.innerHTML = '<span style="color: orange;">⚠️ No administrator privileges detected. Isolated start mode will not work.</span>';
-        return;
-      }
-
-      // Load current identifiers
-      const result = await window.electronAPI.invoke('get-current-system-identifiers');
-      if (result.success) {
-        const identifiers = result.identifiers;
-        targetDiv.innerHTML = `
-          <div style="color: green;">✅ Administrator privileges detected</div>
-          <div style="margin-top: 5px;">
-            <strong>Windows Product ID:</strong> ${identifiers.windowsProductId}<br>
-            <strong>Computer Name:</strong> ${identifiers.computerName}<br>
-            <strong>Host Name:</strong> ${identifiers.hostName}
-          </div>
-        `;
-      } else {
-        targetDiv.innerHTML = `<span style="color: red;">Error loading identifiers: ${result.error}</span>`;
-      }
+      // Generate sample identifiers to show what would be spoofed
+      const identifiers = await window.electronAPI.invoke('generate-random-identifiers');
+      
+      targetDiv.innerHTML = `
+        <div style="color: #007acc; font-weight: bold; margin-bottom: 5px;">Sample Generated Identifiers:</div>
+        <div><strong>MAC Address:</strong> ${identifiers.macAddress}</div>
+        <div><strong>Disk Serial:</strong> ${identifiers.diskSerial}</div>
+        <div><strong>Volume Serial:</strong> ${identifiers.volumeSerial}</div>
+        <div><strong>GPU ID:</strong> ${identifiers.gpuId}</div>
+        <div><strong>BIOS Serial:</strong> ${identifiers.biosSerial}</div>
+        <div><strong>Motherboard Serial:</strong> ${identifiers.motherboardSerial}</div>
+      `;
     } catch (error) {
       targetDiv.innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
     }
@@ -1716,38 +1707,37 @@ class PerfectWorldAccountManager {
     if (!targetDiv) return;
     
     try {
-      targetDiv.innerHTML = 'Testing isolated start mode...';
+      targetDiv.innerHTML = 'Testing process spoofing...';
       
       const result = await window.electronAPI.invoke('test-isolated-start');
       if (result.success) {
+        const macSafeText = result.canMacSpoof ? 
+          '<span style="color: green;">✅ Safe</span>' : 
+          '<span style="color: orange;">⚠️ May disconnect</span>';
+        
         targetDiv.innerHTML = `
-          <div style="color: green;">✅ Test completed successfully!</div>
+          <div style="color: green;">✅ Process spoofing test successful!</div>
           <div style="margin-top: 5px;">
-            <strong>Original:</strong><br>
-            &nbsp;&nbsp;Product ID: ${result.original.windowsProductId}<br>
-            &nbsp;&nbsp;Computer: ${result.original.computerName}<br>
-            &nbsp;&nbsp;Host: ${result.original.hostName}<br>
-            <strong>Applied:</strong><br>
-            &nbsp;&nbsp;Product ID: ${result.applied.windowsProductId}<br>
-            &nbsp;&nbsp;Computer: ${result.applied.computerName}<br>
-            &nbsp;&nbsp;Host: ${result.applied.hostName}<br>
-            <strong>Verified:</strong><br>
-            &nbsp;&nbsp;Product ID: ${result.verified.windowsProductId}<br>
-            &nbsp;&nbsp;Computer: ${result.verified.computerName}<br>
-            &nbsp;&nbsp;Host: ${result.verified.hostName}
+            <strong>Generated Test Identifiers:</strong><br>
+            MAC Address: ${result.identifiers.macAddress} ${macSafeText}<br>
+            Disk Serial: ${result.identifiers.diskSerial}<br>
+            Volume Serial: ${result.identifiers.volumeSerial}<br>
+            GPU ID: ${result.identifiers.gpuId}<br>
+            BIOS Serial: ${result.identifiers.biosSerial}<br>
+            Motherboard Serial: ${result.identifiers.motherboardSerial}
           </div>
-          <div style="margin-top: 5px; color: orange;">
-            ⚠️ System identifiers have been changed! Use "Restore Original Values" to revert.
+          <div style="margin-top: 5px; color: #666; font-size: 11px;">
+            ${result.message}
           </div>
         `;
-        this.showToast('Isolated start test completed successfully');
+        this.showToast('Process spoofing test completed successfully');
       } else {
         targetDiv.innerHTML = `<span style="color: red;">Test failed: ${result.error}</span>`;
-        this.showErrorDialog('Isolated Start Test Failed', result.error);
+        this.showErrorDialog('Process Spoofing Test Failed', result.error);
       }
     } catch (error) {
       targetDiv.innerHTML = `<span style="color: red;">Test error: ${error.message}</span>`;
-      this.showErrorDialog('Isolated Start Test Error', error.message);
+      this.showErrorDialog('Process Spoofing Test Error', error.message);
     }
   }
 
@@ -1755,24 +1745,43 @@ class PerfectWorldAccountManager {
     if (!targetDiv) return;
     
     try {
-      targetDiv.innerHTML = 'Restoring original system identifiers...';
+      targetDiv.innerHTML = 'Cleaning up process spoofing...';
       
-      const result = await window.electronAPI.invoke('restore-original-system-identifiers');
-      if (result.success) {
-        targetDiv.innerHTML = '<div style="color: green;">✅ Original system identifiers restored successfully!</div>';
-        this.showToast('Original system identifiers restored');
+      const result = await window.electronAPI.invoke('cleanup-spoofing');
+      if (result) {
+        targetDiv.innerHTML = '<div style="color: green;">✅ Process spoofing cleaned up successfully!</div>';
+        this.showToast('Process spoofing cleaned up');
         
-        // Reload current identifiers to show the restored values
+        // Reload current identifiers to show the new values
         setTimeout(() => {
           this.loadCurrentSystemIdentifiers(targetDiv);
         }, 1000);
       } else {
-        targetDiv.innerHTML = `<span style="color: red;">Restore failed: ${result.error}</span>`;
-        this.showErrorDialog('Restore Failed', result.error);
+        targetDiv.innerHTML = `<span style="color: red;">Cleanup failed</span>`;
+        this.showErrorDialog('Cleanup Failed', 'Failed to cleanup process spoofing');
       }
     } catch (error) {
-      targetDiv.innerHTML = `<span style="color: red;">Restore error: ${error.message}</span>`;
-      this.showErrorDialog('Restore Error', error.message);
+      targetDiv.innerHTML = `<span style="color: red;">Cleanup error: ${error.message}</span>`;
+      this.showErrorDialog('Cleanup Error', error.message);
+    }
+  }
+
+  async updateSpoofingStatus(dialog) {
+    const statusDiv = dialog.querySelector('#spoofingStatusText');
+    if (!statusDiv) return;
+    
+    try {
+      const status = await window.electronAPI.invoke('get-spoofing-status');
+      
+      if (status.active) {
+        statusDiv.innerHTML = `<span style="color: green;">🟢 Active (PID: ${status.processId})</span>`;
+      } else if (status.error) {
+        statusDiv.innerHTML = `<span style="color: red;">🔴 Error: ${status.error}</span>`;
+      } else {
+        statusDiv.innerHTML = `<span style="color: gray;">⚪ Inactive</span>`;
+      }
+    } catch (error) {
+      statusDiv.innerHTML = `<span style="color: red;">🔴 Error: ${error.message}</span>`;
     }
   }
 }

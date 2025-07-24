@@ -1,7 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account } from '../../shared/types';
-import { generateAccountId } from '../../shared/utils/validation';
 
 export class BatchFileScanner {
   private readonly MAX_SCAN_DEPTH = 5; // Limit recursion depth to prevent stack overflow

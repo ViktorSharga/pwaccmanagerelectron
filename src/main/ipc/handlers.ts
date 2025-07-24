@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { Account, Settings } from '../../shared/types';
@@ -358,64 +358,72 @@ export function setupIpcHandlers() {
     return gameProcessManager.getRunningProcesses();
   });
 
-  // Isolated Start Mode handlers
-  ipcMain.handle('check-admin-privileges', async () => {
+  // Legacy handlers - removed in favor of new process spoofing API
+
+  ipcMain.handle('get-spoofing-status', async () => {
     try {
-      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
-      const hasAdmin = await systemIdManager.checkAdminPrivileges();
-      return { success: true, hasAdmin };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+      const processSpoofer = gameProcessManager.getProcessSpoofer();
+      return await processSpoofer.getSpoofingStatus();
+    } catch (error) {
+      logger.error('Failed to get spoofing status', error, 'IPC');
+      return { active: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   });
 
-  ipcMain.handle('get-current-system-identifiers', async () => {
+  ipcMain.handle('generate-random-identifiers', async () => {
     try {
-      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
-      const identifiers = await systemIdManager.getCurrentIdentifiers();
-      return { success: true, identifiers };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+      const processSpoofer = gameProcessManager.getProcessSpoofer();
+      return await processSpoofer.generateRandomIdentifiers();
+    } catch (error) {
+      logger.error('Failed to generate random identifiers', error, 'IPC');
+      throw error;
     }
   });
 
-  ipcMain.handle('restore-original-system-identifiers', async () => {
+  ipcMain.handle('can-safe-mac-spoof', async () => {
     try {
-      await gameProcessManager.restoreOriginalSystemIdentifiers();
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+      const processSpoofer = gameProcessManager.getProcessSpoofer();
+      return await processSpoofer.canSafeMacSpoof();
+    } catch (error) {
+      logger.error('Failed to check MAC spoofing safety', error, 'IPC');
+      return false;
+    }
+  });
+
+  ipcMain.handle('cleanup-spoofing', async () => {
+    try {
+      const processSpoofer = gameProcessManager.getProcessSpoofer();
+      await processSpoofer.cleanup();
+      return true;
+    } catch (error) {
+      logger.error('Failed to cleanup spoofing', error, 'IPC');
+      return false;
     }
   });
 
   ipcMain.handle('test-isolated-start', async () => {
     try {
-      const systemIdManager = gameProcessManager.getSystemIdentifierManager();
+      const processSpoofer = gameProcessManager.getProcessSpoofer();
 
-      // Check admin privileges
-      const hasAdmin = await systemIdManager.checkAdminPrivileges();
-      if (!hasAdmin) {
+      // Check if spoofer is ready
+      if (!processSpoofer.isReady()) {
         return {
           success: false,
-          error: 'Administrator privileges required. Please run the application as administrator.',
+          error: 'Process spoofer not ready. Windows platform required.',
         };
       }
 
-      // Get current identifiers
-      const originalIdentifiers = await systemIdManager.getCurrentIdentifiers();
+      // Generate random identifiers
+      const identifiers = await processSpoofer.generateRandomIdentifiers();
 
-      // Generate and apply new identifiers
-      const newIdentifiers = systemIdManager.generateRandomIdentifiers();
-      await systemIdManager.applyIdentifiers(newIdentifiers);
-
-      // Verify changes
-      const verifyIdentifiers = await systemIdManager.getCurrentIdentifiers();
+      // Test spoofing capability
+      const canMacSpoof = await processSpoofer.canSafeMacSpoof();
 
       return {
         success: true,
-        original: originalIdentifiers,
-        applied: newIdentifiers,
-        verified: verifyIdentifiers,
+        identifiers: identifiers,
+        canMacSpoof: canMacSpoof,
+        message: 'Process spoofing test successful - identifiers generated',
       };
     } catch (error: any) {
       return { success: false, error: error.message };

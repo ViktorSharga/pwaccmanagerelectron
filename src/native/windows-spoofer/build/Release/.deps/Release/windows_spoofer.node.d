@@ -1,0 +1,1 @@
+cmd_Release/windows_spoofer.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=13.5 -arch arm64 -L./Release -stdlib=libc++  -o Release/windows_spoofer.node Release/obj.target/windows_spoofer/src/spoofer.o Release/obj.target/windows_spoofer/src/api-hooks.o Release/obj.target/windows_spoofer/src/identifier-manager.o 
